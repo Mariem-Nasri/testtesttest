@@ -1,0 +1,59 @@
+# Python cache and artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Big project folders to ignore
+/OCR_platform/
+/Agentic_platform/
+
+# Pipeline outputs and cache
+outputs/
+*.pkl
+*.json
+*.jar
+results_*.json
+
+# Model cache
+.cache/
+models/
+*.safetensors
+*.pt
+*.bin
+
+# Virtual environments
+agent_env/
+ocr_env/
+.venv/
+venv/
+.env
+
+# VSCode
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp
+/tmp/
+
+# Backend runtime data
+backend/uploads/
+backend/docai.db
+backend/__pycache__/
+backend/routers/__pycache__/
+
+# Frontend build artifacts
+Frontend/react-app/node_modules/
+Frontend/react-app/dist/
+Frontend/react-app/.next/
+
+# OCR data output (if not already ignored by /OCR_platform/)
+# OCR_platform/data/  <-- optional, since /OCR_platform/ already ignores all
+
+# Images and other large data files
+images/
+*.png
+*.txt

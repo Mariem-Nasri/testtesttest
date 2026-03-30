@@ -1,0 +1,16 @@
+[Unit]
+Description=DocAI FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=mariem
+WorkingDirectory=/home/mariem/deepdoctection_project/backend
+ExecStart=/home/mariem/.local/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/home/mariem/deepdoctection_project/backend/.env
+Environment=PYTHONPATH=/home/mariem/deepdoctection_project/OCR_platform/deepdoctection/packages/deepdoctection/src:/home/mariem/deepdoctection_project/OCR_platform/deepdoctection/packages/dd_core/src:/home/mariem/deepdoctection_project/OCR_platform/deepdoctection/packages/dd_datasets/src:/home/mariem/deepdoctection_project/OCR_platform/ocr_env/lib/python3.10/site-packages
+
+[Install]
+WantedBy=multi-user.target
