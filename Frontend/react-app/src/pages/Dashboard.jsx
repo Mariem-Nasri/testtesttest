@@ -19,6 +19,7 @@ import ConfidenceBadge         from '../components/common/ConfidenceBadge'
 import { getStats, getDocuments } from '../services/documents'
 import { formatDate }          from '../utils/formatters'
 import useAuthStore            from '../store/useAuthStore'
+import { useTranslation }      from '../hooks/useTranslation'
 import PipelineFlowVisual     from '../components/visuals/PipelineFlowVisual'
 
 // ── KPI Card component (local to this page) ───────────────────────────────────
@@ -73,6 +74,7 @@ function buildChartOptions(labels) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const { t } = useTranslation()
   const { user }  = useAuthStore()
   const [stats,   setStats]   = useState(null)
   const [docs,    setDocs]    = useState([])
@@ -110,13 +112,12 @@ export default function Dashboard() {
       <div className="welcome-banner mb-4">
         <div className="row align-items-center">
           <div className="col-md-8">
-            <h2>👋 Bonjour, {user?.name || 'Mariem'}</h2>
+            <h2>👋 {t('hello')}, {user?.name || 'Mariem'}</h2>
             <p>
-              Bienvenue sur DocAI Platform. Analysez vos documents contractuels
-              grâce à l'OCR et aux agents IA spécialisés.
+              {t('welcome')}
             </p>
             <Link to="/upload" className="btn btn-light btn-sm fw-600">
-              <i className="ti ti-cloud-upload me-1" /> Nouveau document
+              <i className="ti ti-cloud-upload me-1" /> {t('uploadDocument')}
             </Link>
           </div>
           <div className="col-md-4 d-none d-md-block">
@@ -130,7 +131,7 @@ export default function Dashboard() {
         <div className="col-6 col-xl-3">
           <KPICard
             icon="ti-files"
-            label="Documents traités"
+            label={t('documentsProcessed')}
             value={stats?.total_documents ?? 0}
             variant="primary"
           />
@@ -138,7 +139,7 @@ export default function Dashboard() {
         <div className="col-6 col-xl-3">
           <KPICard
             icon="ti-chart-bar"
-            label="Taux de succès"
+            label={t('successRate')}
             value={`${stats?.success_rate ?? 0}%`}
             variant="success"
           />
@@ -146,15 +147,15 @@ export default function Dashboard() {
         <div className="col-6 col-xl-3">
           <KPICard
             icon="ti-clock"
-            label="Tps moyen (sec)"
-            value={stats?.avg_processing_time ?? '—'}
+            label={t('avgTime')}
+            value={stats?.avg_processing_time ? `${stats.avg_processing_time}s` : '—'}
             variant="warning"
           />
         </div>
         <div className="col-6 col-xl-3">
           <KPICard
             icon="ti-loader-2"
-            label="En cours"
+            label={t('processing')}
             value={stats?.processing_count ?? 0}
             variant="info"
           />
@@ -168,7 +169,7 @@ export default function Dashboard() {
           <div className="card h-100">
             <div className="card-header d-flex align-items-center gap-2">
               <i className="ti ti-chart-donut text-primary-app" />
-              Répartition par type
+              {t('distributionByType')}
             </div>
             <div className="card-body d-flex justify-content-center align-items-center">
               <ReactApexChart
@@ -187,7 +188,7 @@ export default function Dashboard() {
           <div className="card h-100">
             <div className="card-header d-flex align-items-center gap-2">
               <i className="ti ti-activity text-primary-app" />
-              Activité récente
+              {t('recentActivity')}
             </div>
             <div className="card-body p-0">
               {docs.slice(0, 5).map((doc) => (
@@ -208,8 +209,8 @@ export default function Dashboard() {
                       <i className="ti ti-file-text" style={{ color: 'var(--primary)' }} />
                     </div>
                     <div>
-                      <div className="fw-600" style={{ fontSize: 13 }}>{doc.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      <div className="fw-600" style={{ fontSize: 14.5 }}>{doc.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                         {formatDate(doc.created_at)}
                       </div>
                     </div>
@@ -235,7 +236,7 @@ export default function Dashboard() {
         <div className="card-header d-flex align-items-center justify-content-between">
           <span className="d-flex align-items-center gap-2">
             <i className="ti ti-table text-primary-app" />
-            Documents récents
+            {t('recentDocuments')}
           </span>
           <Link to="/documents" className="btn btn-outline-primary btn-sm">
             Voir tout
@@ -247,12 +248,12 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Nom du document</th>
-                  <th>Type</th>
-                  <th>Date</th>
-                  <th>Statut</th>
-                  <th>Confiance</th>
-                  <th>Actions</th>
+                  <th>{t('documentName')}</th>
+                  <th>{t('type')}</th>
+                  <th>{t('uploadDate')}</th>
+                  <th>{t('status')}</th>
+                  <th>{t('avgConfidence')}</th>
+                  <th>{t('actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -265,13 +266,13 @@ export default function Dashboard() {
                         display: 'inline-block', padding: '3px 10px',
                         background: 'rgba(255,255,255,0.06)',
                         border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 6, fontSize: 12, fontWeight: 500,
+                        borderRadius: 6, fontSize: 13, fontWeight: 500,
                         color: 'var(--text-secondary)',
                       }}>
                         {doc.document_type || 'Non défini'}
                       </span>
                     </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                    <td style={{ color: 'var(--text-secondary)', fontSize: 14.5 }}>
                       {formatDate(doc.created_at)}
                     </td>
                     <td><StatusBadge status={doc.status} /></td>

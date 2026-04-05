@@ -2,7 +2,6 @@
  * useAuthStore.js
  * ──────────────────────────────────────────────────────────────────────────────
  * Zustand store for authentication state.
- * Persists token + user to localStorage so the session survives page refresh.
  */
 
 import { create } from 'zustand'
@@ -11,8 +10,8 @@ const TOKEN_KEY = 'docai_token'
 const USER_KEY  = 'docai_user'
 
 const useAuthStore = create((set) => ({
-  // Initial state — read from localStorage
-  token: localStorage.getItem(TOKEN_KEY) || null,
+  // Initial state — load from localStorage on startup
+  token: localStorage.getItem(TOKEN_KEY),
   user:  JSON.parse(localStorage.getItem(USER_KEY) || 'null'),
 
   // Set auth after successful login

@@ -22,7 +22,6 @@ import PipelineStats            from '../components/results/PipelineStats'
 import { getDocumentResults, getDocumentStatus, exportResults } from '../services/documents'
 import usePolling               from '../hooks/usePolling'
 import { formatDate }           from '../utils/formatters'
-import DocumentStackVisual     from '../components/visuals/DocumentStackVisual'
 
 // ── Pipeline steps ────────────────────────────────────────────────────────────
 const PIPELINE_STEPS = [
@@ -263,17 +262,6 @@ export default function Results() {
         </div>
       )}
 
-      {/* ── Document Stack Visual — Option 3 ── */}
-      <div className="card mb-4">
-        <div className="card-header d-flex align-items-center gap-2" style={{ fontSize: 13 }}>
-          <i className="ti ti-3d-cube-sphere text-primary-app" />
-          Aperçu 3D — Extraction en cours
-        </div>
-        <div className="card-body" style={{ padding: '20px 24px' }}>
-          <DocumentStackVisual />
-        </div>
-      </div>
-
       {/* ── Tabs ── */}
       <ul className="nav nav-tabs mb-4" style={{ borderBottom: '2px solid var(--border-color)' }}>
         {[
@@ -364,7 +352,6 @@ export default function Results() {
                         <th>Champ</th>
                         <th>Valeur extraite</th>
                         <th>Format</th>
-                        <th>Agent</th>
                         <th>Page</th>
                         <th style={{ minWidth: 140 }}>Confiance</th>
                       </tr>
@@ -402,11 +389,6 @@ export default function Results() {
                               <FormatBadge format={field.expected_format} formatValid={field.format_valid} />
                             </td>
 
-                            {/* Agent */}
-                            <td>
-                              <AgentBadge agent={field.agent_used} usedLlm={field.router_used_llm ?? field._debug?.router_used_llm} size="sm" />
-                            </td>
-
                             {/* Page */}
                             <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{field.page || '—'}</td>
 
@@ -417,7 +399,7 @@ export default function Results() {
                           {/* ── Debug panel (expanded row) ── */}
                           {expandedRow === idx && (
                             <tr key={`debug-${idx}`} style={{ background: 'rgba(0,167,111,0.03)' }}>
-                              <td colSpan={7} style={{ padding: '12px 20px 16px 48px' }}>
+                              <td colSpan={6} style={{ padding: '12px 20px 16px 48px' }}>
                                 <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', fontSize: 12.5 }}>
                                   <DebugItem label="Embedding confidence" value={(field.embedding_confidence ?? field._debug?.embedding_confidence) != null ? `${((field.embedding_confidence ?? field._debug?.embedding_confidence) * 100).toFixed(1)}%` : '—'} icon="ti-cpu" />
                                   <DebugItem label="Appels LLM" value={field.llm_calls ?? field._debug?.llm_calls ?? 0} icon="ti-brain" />
@@ -438,7 +420,7 @@ export default function Results() {
                       ))}
                       {filtered.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="text-center py-4" style={{ color: 'var(--text-secondary)' }}>
+                          <td colSpan={6} className="text-center py-4" style={{ color: 'var(--text-secondary)' }}>
                             Aucun champ ne correspond aux filtres
                           </td>
                         </tr>

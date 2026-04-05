@@ -7,6 +7,7 @@
  */
 
 import { useLocation, Link } from 'react-router-dom'
+import useLanguageStore from '../../store/useLanguageStore'
 
 // ── Breadcrumb mapping ────────────────────────────────────────────────────────
 const ROUTE_LABELS = {
@@ -26,8 +27,14 @@ function getBreadcrumb(pathname) {
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Topbar({ onMenuToggle }) {
   const { pathname } = useLocation()
+  const { language, toggleLanguage } = useLanguageStore()
   const crumbs       = getBreadcrumb(pathname)
   const pageTitle    = crumbs[crumbs.length - 1]
+
+  const handleLanguageToggle = () => {
+    console.log('Language toggle clicked. Current:', language)
+    toggleLanguage()
+  }
 
   return (
     <div className="topbar">
@@ -71,6 +78,12 @@ export default function Topbar({ onMenuToggle }) {
           <i className="ti ti-plus" style={{ fontSize: 16 }} />
           Nouveau
         </Link>
+
+        {/* Language toggle */}
+        <button className="btn-icon-topbar" aria-label="Change language" onClick={handleLanguageToggle} title={language === 'fr' ? 'Switch to English' : 'Passer au français'}>
+          <i className="ti ti-language" />
+          <span style={{ fontSize: 11, fontWeight: 600, marginLeft: 4 }}>{language.toUpperCase()}</span>
+        </button>
 
         {/* Notification bell */}
         <button className="btn-icon-topbar" aria-label="Notifications">

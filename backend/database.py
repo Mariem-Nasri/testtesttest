@@ -107,6 +107,8 @@ def delete_document(doc_id: str):
 
 
 def get_stats() -> dict:
+    from datetime import datetime
+    
     with get_conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         completed = conn.execute(
@@ -118,6 +120,28 @@ def get_stats() -> dict:
         avg_conf_row = conn.execute(
             "SELECT AVG(avg_confidence) FROM documents WHERE status = 'completed'"
         ).fetchone()[0]
+        
+        # Calculate average processing time PER FIELD (champ)
+        processing_data = conn.execute(
+            "SELECT created_at, completed_at, total_keys FROM documents WHERE status = 'completed' AND completed_at IS NOT NULL"
+        ).fetchall()
+        
+        avg_processing_time = 0
+        if processing_data:
+            total_time = 0
+            total_fields = 0
+            for row in processing_data:
+                try:
+                    created = datetime.fromisoformat(row[0])
+                    completed_dt = datetime.fromisoformat(row[1])
+                    duration = (completed_dt - created).total_seconds()
+                    total_time += duration
+                    total_fields += row[2] or 0
+                except:
+                    pass
+            # Average time per field
+            avg_processing_time = round(total_time / total_fields if total_fields > 0 else 0, 2)
+        
         by_type = conn.execute(
             "SELECT document_type, COUNT(*) as cnt FROM documents GROUP BY document_type"
         ).fetchall()
@@ -126,7 +150,7 @@ def get_stats() -> dict:
     return {
         "total_documents": total,
         "success_rate": success_rate,
-        "avg_processing_time": 0,   # not tracked yet
+        "avg_processing_time": avg_processing_time,
         "processing_count": processing,
         "avg_confidence": round(avg_conf_row or 0, 3),
         "by_type": {r["document_type"]: r["cnt"] for r in by_type},

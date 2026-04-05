@@ -3,6 +3,7 @@ import MainLayout from './components/layout/MainLayout'
 import Login      from './pages/auth/Login'
 import Dashboard  from './pages/Dashboard'
 import Upload     from './pages/Upload'
+import ExtractFields from './pages/ExtractFields'
 import Documents  from './pages/Documents'
 import Results    from './pages/Results'
 import useAuthStore from './store/useAuthStore'
@@ -33,6 +34,7 @@ export default function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard"             element={<Dashboard />} />
         <Route path="upload"              element={<Upload />} />
+        <Route path="extract-fields"      element={<ExtractFields />} />
         <Route path="documents"           element={<Documents />} />
         <Route path="documents/:id/results" element={<Results />} />
       </Route>

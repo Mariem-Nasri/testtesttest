@@ -330,6 +330,73 @@ async def delete_document(doc_id: str, _user: dict = Depends(_require_auth)):
     return {"deleted": True, "id": doc_id}
 
 
+# ── Extraction Fields ────────────────────────────────────────────────────────
+
+@router.post("/extraction-fields")
+async def save_extraction_fields(
+    payload: list,
+    _user: dict = Depends(_require_auth),
+):
+    """
+    Accepts and saves extraction field definitions (manual form entry).
+    
+    Request body (JSON array):
+      [
+        {
+          "keyName": "Loan Number",
+          "keyNameDescription": "",
+          "page": "",
+          "value": "",
+          "score": ""
+        },
+        ...
+      ]
+    
+    Returns:
+      {
+        "status": "saved",
+        "count": <number of fields>,
+        "fields": [...]
+      }
+    """
+    if not payload:
+        raise HTTPException(status_code=422, detail="Fields array required and cannot be empty")
+    
+    # Validate each field has required keyName
+    for idx, field in enumerate(payload):
+        if not isinstance(field, dict):
+            raise HTTPException(status_code=422, detail=f"Field {idx} must be an object")
+        if not field.get("keyName") or not str(field["keyName"]).strip():
+            raise HTTPException(status_code=422, detail=f"Field {idx}: keyName is required and cannot be empty")
+    
+    # Save to file with timestamp
+    extraction_dir = UPLOAD_DIR / "extractions"
+    extraction_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    extraction_file = extraction_dir / f"extraction_fields_{timestamp}.json"
+    
+    # Write the fields
+    extraction_file.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8"
+    )
+    
+    # Also save as "latest" for convenience
+    latest_file = extraction_dir / "extraction_fields_latest.json"
+    latest_file.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8"
+    )
+    
+    return {
+        "status": "saved",
+        "count": len(payload),
+        "file": str(extraction_file),
+        "fields": payload,
+    }
+
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")

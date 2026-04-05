@@ -13,7 +13,6 @@ import { useNavigate }                from 'react-router-dom'
 import { useDropzone }                from 'react-dropzone'
 import toast                          from 'react-hot-toast'
 import PageHeader                     from '../components/common/PageHeader'
-import JsonFieldBuilder               from '../components/upload/JsonFieldBuilder'
 import { uploadDocument, analyzeDocument } from '../services/documents'
 
 // ── Accepted file types ────────────────────────────────────────────────────────
@@ -89,8 +88,12 @@ export default function Upload() {
       if (jsonMode === 'upload' && jsonFile) {
         form.append('json_file', jsonFile)
       } else {
-        const blob = new Blob([JSON.stringify(fields.map(({ keyName, keyNameDescription }) => ({
-          keyName, keyNameDescription,
+        const blob = new Blob([JSON.stringify(fields.map(({ keyName, keyNameDescription, page, value, score }) => ({
+          keyName,
+          keyNameDescription,
+          page,
+          value,
+          score,
         })))], { type: 'application/json' })
         form.append('json_file', blob, 'fields.json')
       }
@@ -125,16 +128,16 @@ export default function Upload() {
               <div key={label} className="d-flex align-items-center">
                 <div className="d-flex flex-column align-items-center" style={{ minWidth: 100 }}>
                   <div style={{
-                    width: 34, height: 34, borderRadius: '50%',
+                    width: 40, height: 40, borderRadius: '50%',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 700, fontSize: 13,
+                    fontWeight: 700, fontSize: 15,
                     background: idx < step ? 'var(--primary)' : idx === step ? 'transparent' : 'rgba(255,255,255,0.04)',
                     border: `2px solid ${idx <= step ? 'var(--primary)' : 'rgba(255,255,255,0.1)'}`,
                     color:  idx < step ? '#fff' : idx === step ? 'var(--primary)' : 'var(--text-secondary)',
                   }}>
-                    {idx < step ? <i className="ti ti-check" style={{ fontSize: 14 }} /> : idx + 1}
+                    {idx < step ? <i className="ti ti-check" style={{ fontSize: 16 }} /> : idx + 1}
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, marginTop: 6, textAlign: 'center', color: idx <= step ? 'var(--primary)' : '#adb5bd' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, marginTop: 6, textAlign: 'center', color: idx <= step ? 'var(--primary)' : '#adb5bd' }}>
                     {label}
                   </span>
                 </div>
@@ -263,7 +266,70 @@ export default function Upload() {
                 </div>
               </>
             ) : (
-              <JsonFieldBuilder fields={fields} onChange={setFields} />
+              // Saisie manuelle — FieldExtractor
+              <div style={{ marginTop: 20 }}>
+                <div className="mb-3 d-flex justify-content-between align-items-center">
+                  <div>
+                    <h6 className="mb-0">Champs à extraire</h6>
+                    <small className="text-muted">{fields.length} champ(s) défini(s)</small>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => setFields([...fields, { id: Date.now(), keyName: '' }])}
+                    disabled={submitting}
+                  >
+                    <i className="ti ti-plus me-1" /> Ajouter un champ
+                  </button>
+                </div>
+
+                {fields.length === 0 ? (
+                  <div className="text-center py-5" style={{ color: 'var(--text-secondary)' }}>
+                    <i className="ti ti-list-details" style={{ fontSize: 48, opacity: 0.3, display: 'block', marginBottom: 16 }} />
+                    <p>Aucun champ défini</p>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => setFields([{ id: Date.now(), keyName: '' }])}
+                      disabled={submitting}
+                    >
+                      <i className="ti ti-plus me-1" /> Ajouter un champ
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    {fields.map((field, idx) => (
+                      <div key={field.id} className="d-flex gap-2 mb-2" style={{ alignItems: 'center' }}>
+                        <span className="badge bg-primary-app">{idx + 1}</span>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm"
+                          placeholder="Nom du champ"
+                          value={field.keyName}
+                          onChange={(e) => setFields(fields.map(f => f.id === field.id ? { ...f, keyName: e.target.value } : f))}
+                          disabled={submitting}
+                          style={{ flex: 1 }}
+                        />
+                        <button
+                          className="btn btn-sm btn-ghost text-danger"
+                          onClick={() => setFields(fields.filter(f => f.id !== field.id))}
+                          disabled={submitting}
+                          title="Supprimer"
+                        >
+                          <i className="ti ti-trash" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  className="btn btn-primary w-100 mt-3"
+                  onClick={() => next()}
+                  disabled={fields.length === 0 || !fields.every(f => f.keyName?.trim()) || submitting}
+                >
+                  <i className="ti ti-arrow-right me-1" />
+                  Suivant
+                </button>
+              </div>
             )}
           </div>
         </div>

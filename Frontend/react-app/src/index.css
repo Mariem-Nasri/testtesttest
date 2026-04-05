@@ -9,7 +9,7 @@
   --primary-dark:       #007a52;
   --primary-light:      rgba(0, 167, 111, 0.12);
   --primary-glow:       rgba(0, 167, 111, 0.35);
-  --sidebar-width:      260px;
+  --sidebar-width:      285px;
   --sidebar-bg:         #070b14;
   --sidebar-text:       #8b949e;
   --sidebar-active-bg:  rgba(0, 167, 111, 0.14);
@@ -114,11 +114,11 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 68px;
+  min-height: 72px;
 }
 
 .brand-logo .logo-icon {
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   background: linear-gradient(135deg, var(--primary), #007a52);
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
@@ -126,11 +126,11 @@ body {
   box-shadow: 0 0 16px rgba(0,167,111,0.4);
   animation: pulse-ring 2.5s cubic-bezier(0.215,0.61,0.355,1) infinite;
 }
-.brand-logo .logo-icon i { color: #fff; font-size: 18px; }
+.brand-logo .logo-icon i { color: #fff; font-size: 20px; }
 
 .site-logo-text {
   color: #ffffff;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.5px;
   background: linear-gradient(90deg, #fff, var(--primary));
@@ -144,7 +144,7 @@ body {
 
 .nav-section-label {
   padding: 16px 20px 6px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -161,7 +161,7 @@ body {
   color: var(--sidebar-text);
   text-decoration: none;
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: 15.5px;
   font-weight: 500;
   transition: all 0.2s ease;
   cursor: pointer;
@@ -223,9 +223,9 @@ body {
 }
 
 .sidebar-user .user-info .user-name {
-  font-size: 13px; font-weight: 600; color: #ffffff; line-height: 1.2;
+  font-size: 14px; font-weight: 600; color: #ffffff; line-height: 1.2;
 }
-.sidebar-user .user-info .user-role { font-size: 11px; color: var(--sidebar-text); }
+.sidebar-user .user-info .user-role { font-size: 12px; color: var(--sidebar-text); }
 
 /* ─────────────────────────────────────────────────────────
    MAIN CONTENT
@@ -366,14 +366,14 @@ body {
 .kpi-icon i { font-size: 24px; }
 
 .kpi-value {
-  font-size: 30px;
+  font-size: 36px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1;
   margin-bottom: 6px;
   animation: counter-in 0.6s ease both;
 }
-.kpi-label { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+.kpi-label { font-size: 15px; color: var(--text-secondary); font-weight: 500; }
 
 /* ─────────────────────────────────────────────────────────
    CARDS
@@ -393,7 +393,7 @@ body {
   border-bottom: 1px solid var(--border-color) !important;
   padding: 16px 22px;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   border-radius: var(--card-radius) var(--card-radius) 0 0 !important;
   color: var(--text-primary) !important;
 }
@@ -460,11 +460,11 @@ body {
 /* ─────────────────────────────────────────────────────────
    TABLES
    ───────────────────────────────────────────────────────── */
-.table { font-size: 13.5px; color: var(--text-primary) !important; }
+.table { font-size: 14.5px; color: var(--text-primary) !important; }
 
 .table thead th {
   font-weight: 600;
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--text-secondary) !important;
@@ -566,9 +566,9 @@ body {
   border-color: var(--success);
   box-shadow: 0 0 20px rgba(0,196,159,0.1);
 }
-.drop-zone-icon { font-size: 48px; color: var(--primary); margin-bottom: 14px; animation: float-up 3s ease-in-out infinite; }
-.drop-zone-text { font-size: 14px; color: var(--text-secondary); }
-.drop-zone-hint { font-size: 12px; color: rgba(148,163,184,0.6); margin-top: 6px; }
+.drop-zone-icon { font-size: 52px; color: var(--primary); margin-bottom: 14px; animation: float-up 3s ease-in-out infinite; }
+.drop-zone-text { font-size: 16px; color: var(--text-secondary); }
+.drop-zone-hint { font-size: 13px; color: rgba(148,163,184,0.6); margin-top: 6px; }
 
 .file-preview {
   display: flex; align-items: center; gap: 12px;
@@ -729,6 +729,51 @@ body {
 }
 .field-drag-handle { cursor: grab; color: var(--text-secondary); font-size: 18px; }
 .field-drag-handle:active { cursor: grabbing; }
+
+/* ─────────────────────────────────────────────────────────
+   FIELD EXTRACTOR — Advanced Form Component
+   ───────────────────────────────────────────────────────── */
+.field-extractor { width: 100%; }
+
+.field-card {
+  transition: all 0.3s ease;
+  border-left: 3px solid transparent;
+}
+
+.field-card:hover {
+  border-left-color: var(--primary);
+  box-shadow: 0 0 20px rgba(0, 167, 111, 0.1);
+}
+
+.field-details {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  animation: slideDown 0.25s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    overflow: hidden;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+    overflow: visible;
+  }
+}
+
+.fields-container {
+  max-height: none;
+  transition: max-height 0.3s ease;
+}
+
+.form-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
 
 /* ─────────────────────────────────────────────────────────
    LOGIN PAGE  — Spectacular Dark Design
@@ -1024,8 +1069,8 @@ body {
   border-radius: 50%;
   background: rgba(255,255,255,0.04);
 }
-.welcome-banner h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; position: relative; z-index: 1; }
-.welcome-banner p  { font-size: 14px; opacity: 0.85; margin-bottom: 20px; position: relative; z-index: 1; }
+.welcome-banner h2 { font-size: 26px; font-weight: 700; margin-bottom: 8px; position: relative; z-index: 1; }
+.welcome-banner p  { font-size: 15px; opacity: 0.85; margin-bottom: 20px; position: relative; z-index: 1; }
 
 /* ─────────────────────────────────────────────────────────
    EMPTY STATE

@@ -13,6 +13,7 @@ import StatusBadge                          from '../components/common/StatusBad
 import ConfidenceBadge                      from '../components/common/ConfidenceBadge'
 import { getDocuments, deleteDocument, reanalyzeDocument } from '../services/documents'
 import { formatDate }                       from '../utils/formatters'
+import { useTranslation }                   from '../hooks/useTranslation'
 
 // ── Status filter options ─────────────────────────────────────────────────────
 const STATUS_OPTIONS = [
@@ -33,6 +34,7 @@ const MOCK_DOCS = [
 ]
 
 export default function Documents() {
+  const { t } = useTranslation()
   const [allDocs,     setAllDocs]     = useState([])
   const [filtered,    setFiltered]    = useState([])
   const [search,      setSearch]      = useState('')
@@ -213,13 +215,13 @@ export default function Documents() {
 
                       {/* Type */}
                       <td>
-                        <span style={{ display:'inline-block', padding:'3px 10px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, fontSize:12, fontWeight:500, color:'var(--text-secondary)' }}>
+                        <span style={{ display:'inline-block', padding:'3px 10px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, fontSize:13.5, fontWeight:500, color:'var(--text-secondary)' }}>
                           {doc.document_type || '—'}
                         </span>
                       </td>
 
                       {/* Date */}
-                      <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: 14.5 }}>
                         {formatDate(doc.created_at)}
                       </td>
 
@@ -230,7 +232,7 @@ export default function Documents() {
                       <td>
                         {doc.avg_confidence != null
                           ? <ConfidenceBadge score={doc.avg_confidence} />
-                          : <span style={{ color: '#adb5bd', fontSize: 12 }}>—</span>
+                          : <span style={{ color: '#adb5bd', fontSize: 13.5 }}>—</span>
                         }
                       </td>
 

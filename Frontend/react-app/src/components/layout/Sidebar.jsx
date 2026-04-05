@@ -7,23 +7,25 @@
 
 import { NavLink, useNavigate } from 'react-router-dom'
 import useAuthStore from '../../store/useAuthStore'
-
-// ── Navigation items ──────────────────────────────────────────────────────────
-const NAV_ITEMS = [
-  {
-    label: 'MAIN',
-    items: [
-      { to: '/dashboard', icon: 'ti-layout-dashboard', text: 'Dashboard' },
-      { to: '/upload',    icon: 'ti-cloud-upload',     text: 'Upload Document' },
-      { to: '/documents', icon: 'ti-files',            text: 'Documents' },
-    ],
-  },
-]
+import { useTranslation } from '../../hooks/useTranslation'
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Sidebar({ isOpen, onClose }) {
   const navigate   = useNavigate()
+  const { t }      = useTranslation()
   const { user, logout } = useAuthStore()
+
+  // Navigation items with translations
+  const NAV_ITEMS = [
+    {
+      label: 'MAIN',
+      items: [
+        { to: '/dashboard', icon: 'ti-layout-dashboard', text: t('dashboard') },
+        { to: '/upload',    icon: 'ti-cloud-upload',     text: t('uploadDocument') },
+        { to: '/documents', icon: 'ti-files',            text: t('documents') },
+      ],
+    },
+  ]
 
   function handleLogout() {
     logout()
@@ -99,7 +101,7 @@ export default function Sidebar({ isOpen, onClose }) {
               <span className="nav-icon">
                 <i className="ti ti-logout" />
               </span>
-              <span>Déconnexion</span>
+              <span>{t('logout')}</span>
             </button>
           </li>
         </ul>

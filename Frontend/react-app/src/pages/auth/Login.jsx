@@ -11,6 +11,8 @@ import { useNavigate }         from 'react-router-dom'
 import toast                   from 'react-hot-toast'
 import { login }               from '../../services/auth'
 import useAuthStore            from '../../store/useAuthStore'
+import { useTranslation }      from '../../hooks/useTranslation'
+import useLanguageStore        from '../../store/useLanguageStore'
 import PDFExtractVisual        from '../../components/visuals/PDFExtractVisual'
 
 
@@ -63,8 +65,17 @@ function StatBox({ value, label, suffix = '' }) {
 
 // ── Main Login component ───────────────────────────────────────────────────────
 export default function Login() {
-  const navigate    = useNavigate()
-  const { setAuth } = useAuthStore()
+  const navigate           = useNavigate()
+  const { t }             = useTranslation()
+  const { language, toggleLanguage } = useLanguageStore()
+  const { setAuth }       = useAuthStore()
+
+  // Features with translations
+  const FEATURES = [
+    { icon: 'ti-robot',        label: t('automaticExtraction'),  desc: t('automaticExtractionDesc') },
+    { icon: 'ti-shield-check', label: t('intelligentValidation'), desc: t('intelligentValidationDesc') },
+    { icon: 'ti-chart-bar',    label: t('structuredResults'),    desc: t('structuredResultsDesc') },
+  ]
 
   const [form,     setForm]     = useState({ email: '', password: '' })
   const [loading,  setLoading]  = useState(false)
@@ -78,17 +89,17 @@ export default function Login() {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.email || !form.password) {
-      toast.error('Veuillez remplir tous les champs')
+      toast.error(t('fillAllFields'))
       return
     }
     setLoading(true)
     try {
       const data = await login(form.email, form.password)
       setAuth(data.access_token, data.user)
-      toast.success('Connexion réussie !')
+      toast.success(t('loginSuccess'))
       navigate('/dashboard')
     } catch (err) {
-      const msg = err?.response?.data?.detail || 'Email ou mot de passe incorrect'
+      const msg = err?.response?.data?.detail || t('invalidCredentials')
       toast.error(msg)
     } finally {
       setLoading(false)
@@ -100,12 +111,12 @@ export default function Login() {
     try {
       const data = await login('mariem@vermeg.com', 'vermeg2025')
       setAuth(data.access_token, data.user)
-      toast.success('Bienvenue sur DocAI !')
+      toast.success(t('welcomeDocAI'))
       navigate('/dashboard')
     } catch {
       // Backend not running — set form fields so user can see credentials
       setForm({ email: 'mariem@vermeg.com', password: 'vermeg2025' })
-      toast.error('Backend non disponible — lancez uvicorn main:app')
+      toast.error(t('backendNotAvailable'))
     } finally {
       setLoading(false)
     }
@@ -132,15 +143,13 @@ export default function Login() {
 
         {/* Hero text */}
         <div className="login-hero-title">
-          Intelligence
-          <span>Documentaire</span>
-          Autonome
+          {t('intelligentDocumentation').split(' ')[0]}
+          <span>{t('intelligentDocumentation').split(' ')[1]}</span>
+          {t('intelligentDocumentation').split(' ')[2]}
         </div>
 
         <p className="login-hero-subtitle">
-          Plateforme d'extraction de champs dynamiques basée sur l'OCR
-          et un pipeline de 4 agents IA. Conçue pour les documents
-          financiers complexes chez VERMEG.
+          {t('platformDesc')}
         </p>
 
         {/* PDF Extract Visual */}
@@ -148,9 +157,9 @@ export default function Login() {
 
         {/* Stats row */}
         <div style={{ display: 'flex', gap: 12, marginTop: 36 }}>
-          <StatBox value={4}   suffix=""  label="Agents IA" />
-          <StatBox value={98}  suffix="%" label="Précision" />
-          <StatBox value={120} suffix="+"  label="Docs/heure" />
+          <StatBox value={4}   suffix=""  label={t('aiAgents')} />
+          <StatBox value={98}  suffix="%" label={t('accuracy')} />
+          <StatBox value={120} suffix="+"  label={t('docsPerHour')} />
         </div>
 
         {/* Feature highlights */}
@@ -191,9 +200,21 @@ export default function Login() {
             <div className="login-logo-icon">
               <i className="ti ti-brain" />
             </div>
-            <h1 className="login-title">Connexion</h1>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <h1 className="login-title">{t('loginTitle')}</h1>
+              <button 
+                onClick={toggleLanguage} 
+                title={language === 'fr' ? 'Switch to English' : 'Passer au français'}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', 
+                  color: 'var(--primary)', fontSize: 14, fontWeight: 600,
+                }}
+              >
+                {language.toUpperCase()}
+              </button>
+            </div>
             <p className="login-subtitle">
-              Accédez à votre espace DocAI
+              {t('loginSubtitle')}
             </p>
           </div>
 
@@ -204,7 +225,7 @@ export default function Login() {
             <div className="mb-3">
               <label className="form-label">
                 <i className="ti ti-mail me-1" style={{ fontSize: 12, opacity: 0.7 }} />
-                Adresse email
+                {t('emailAddress')}
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -236,7 +257,7 @@ export default function Login() {
             <div className="mb-4">
               <label className="form-label">
                 <i className="ti ti-lock me-1" style={{ fontSize: 12, opacity: 0.7 }} />
-                Mot de passe
+                {t('password')}
               </label>
               <div style={{ position: 'relative' }}>
                 <input
