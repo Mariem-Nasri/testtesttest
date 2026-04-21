@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OCR Benchmark Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; }
+  h1 { padding: 24px 32px; font-size: 1.6rem; border-bottom: 1px solid #2d3748;
+       background: #1a202c; color: #90cdf4; }
+  .meta { padding: 8px 32px; font-size: 0.82rem; color: #718096; background: #1a202c; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+           gap: 16px; padding: 20px; }
+  .card { background: #1e2330; border-radius: 10px; overflow: hidden;
+           border: 1px solid #2d3748; }
+  .card-header { padding: 10px 14px; background: #2d3748; display: flex;
+                  justify-content: space-between; align-items: center; }
+  .card-title { font-weight: 600; font-size: 0.95rem; color: #90cdf4; }
+  .badge { font-size: 0.72rem; padding: 2px 8px; border-radius: 99px;
+            background: #4a5568; color: #e2e8f0; }
+  .badge.ok { background: #276749; color: #9ae6b4; }
+  .badge.skip { background: #744210; color: #fbd38d; }
+  .badge.err { background: #742a2a; color: #fed7d7; }
+  pre { padding: 14px; font-size: 0.78rem; line-height: 1.55; white-space: pre-wrap;
+         word-break: break-word; max-height: 500px; overflow-y: auto;
+         color: #d1fae5; background: transparent; }
+  .stats { padding: 6px 14px 10px; font-size: 0.78rem; color: #718096; }
+  table.summary { width: calc(100% - 40px); margin: 0 20px 20px;
+                   border-collapse: collapse; background: #1e2330;
+                   border-radius: 10px; overflow: hidden;
+                   border: 1px solid #2d3748; }
+  table.summary th, table.summary td { padding: 10px 14px; text-align: left;
+                                         border-bottom: 1px solid #2d3748;
+                                         font-size: 0.85rem; }
+  table.summary th { background: #2d3748; color: #90cdf4; }
+  table.summary tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<h1>🔬 OCR Benchmark — Comparison Report</h1>
+<div class="meta">Generated: 2026-04-10 11:02:28 &nbsp;|&nbsp; PDF: Test2.pdf</div>
+
+<table class="summary">
+  <tr><th>Engine</th><th>Status</th><th>Time (s)</th><th>Chars extracted</th></tr>
+  <tr><td>GLM-OCR (Ollama) [corrected]</td><td><span class="badge ok">OK</span></td><td>211.8</td><td>27,433</td></tr>
+<tr><td>PDF Reference (pdfplumber)</td><td><span class="badge ok">OK</span></td><td>0.0</td><td>31,305</td></tr>
+
+</table>
+
+<div class="grid">
+  
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">GLM-OCR (Ollama) [corrected]</span>
+            <span class="badge ok">OK</span>
+          </div>
+          <div class="stats">27,433 chars &nbsp;|&nbsp; 211.8s</div>
+          <pre>── Page 1 ──
+Loan Agreement
+
+(Public Sector Performance -ENNAJAA- Program)
+
+between
+
+KINGDOM OF MOROCCO
+
+and
+
+INTERNATIONAL BANK FOR RECONSTRUCTION
+AND DEVELOPMENT
+
+── Page 2 ──
+LOAN AGREEMENT
+
+AGREEMENT dated as of the Signature Date between KINGDOM OF MOROCCO (“Borrower”) and INTERNATIONAL BANK FOR RECONSTRUCTION AND DEVELOPMENT (“Bank”). The Borrower and the Bank hereby agree as follows:
+
+ARTICLE I — GENERAL CONDITIONS; DEFINITIONS
+
+1.01. The General Conditions (as defined in the Appendix to this Agreement) apply to and form part of this Agreement.
+
+1.02. Unless the context requires otherwise, the capitalized terms used in this Agreement have the meanings ascribed to them in the General Conditions or in the Appendix to this Agreement.
+
+ARTICLE II — LOAN
+
+2.01. The Bank agrees to lend to the Borrower the amount of three hundred eighty-six million two hundred thousand Euro (EUR386,200,000), as such amount may be converted from time to time through a Currency Conversion (“Loan”), to assist in financing the program described in Schedule 1 to this Agreement (“Program”).
+
+2.02. The Borrower may withdraw the proceeds of the Loan in accordance with Section IV of Schedule 2 to this Agreement. All withdrawals from the Loan Account shall be deposited by the Bank into an account specified by the Borrower and acceptable to the Bank.
+
+2.03. The Front-end Fee is one quarter of one percent (0.25%) of the Loan amount.
+
+2.04. The Commitment Charge is one quarter of one percent (0.25%) per annum on the Unwithdrawn Loan Balance.
+
+2.05. The interest rate is the Reference Rate plus the Variable Spread; or such rate as may apply following a Conversion; subject to Section 3.02(e) of the General Conditions.
+
+2.06. The Borrower elects to apply the Automatic Rate Fixing Conversion to the Loan. Accordingly, without limitation upon the provisions of Article IV of the General Conditions and unless otherwise notified by the Borrower to the Bank in accordance with the provisions of the Conversion Guidelines, the interest rate basis applicable to the aggregate principal amount of the Loan withdrawn during each Interest Period shall be converted from the initial Variable Rate based on a Reference Rate and the Variable Spread to a Variable Rate based on a Fixed Reference Rate and the Variable Spread for the full maturity of such amount in
+
+── Page 3 ──
+accordance with the provisions of Article IV of the General Conditions and of the Conversion Guidelines.
+
+2.07. The Payment Dates are April 15 and October 15 in each year.
+
+2.08. The principal amount of the Loan shall be repaid in accordance with Schedule 3 to this Agreement.
+
+ARTICLE III — PROGRAM
+
+3.01. The Borrower declares its commitment to the objectives of the Program. To this end, the Borrower shall carry out the Program through the Ministry of Economy and Finances ("MEF") in accordance with the provisions of Article V of the General Conditions and Schedule 2 to this Agreement.
+
+ARTICLE IV — TERMINATION
+
+4.01. The Effectiveness Deadline is the date ninety (90) days after the Signature Date.
+
+ARTICLE V — REPRESENTATIVE; ADDRESSES
+
+5.01. The Borrower's Representative is the Minister in charge of finances.
+
+5.02. For purposes of Section 10.01 of the General Conditions:
+
+(a) the Borrower's address is:
+
+Ministère de l'Economie et des Finances
+Quartier Administratif
+Avenue Mohammed V
+Rabat
+Kingdom of Morocco; and
+
+(b) the Borrower's Electronic Address is:
+
+Cable address: Facsimile:
+
+MINFIN (+212)-537-67-75-30/31
+ (+212)-537-76-40-81
+
+5.03. For purposes of Section 10.01 of the General Conditions:
+
+(a) the Bank's address is:
+
+International Bank for Reconstruction and Development
+1818 H Street, N.W.
+
+── Page 4 ──
+Washington, D.C. 20433
+United States of America; and
+
+(b) the Bank’s Electronic Address is:
+
+Telex: Facsimile:
+248423(MCI) or (+1)-202-477-6391
+64145(MCI)
+
+AGREED as of the Signature Date.
+
+KINGDOM OF MOROCCO
+
+By
+
+Authorized Representative
+
+Name: Nadia FETTAH
+Title: Minister of Economy and Finance
+Date: March 23rd, 2022
+
+INTERNATIONAL BANK FOR RECONSTRUCTION AND DEVELOPMENT
+
+By
+
+Authorized Representative
+
+Name: JESKOS, HENTSCHEL
+Title: Country Director
+Date: March 23rd, 2022
+
+── Page 5 ──
+SCHEDULE 1
+
+Program Description
+
+The objective of the Program is to improve performance and transparency of government operations and service delivery.
+
+The Program consists of the following activities:
+
+Result Area 1. Improving the Efficiency of Public Expenditure
+
+Provision of support for the implementation of the Organic Budget Law and the strengthening of the value for money in public procurement through the following activities, including:
+
+(a) the adoption of quality standards of performance indicators and a management control charter;
+
+(b) the reform of the budget structure of the Regions, including a performance-based classification;
+
+(c) the integration of gender and climate responsive considerations into the Borrower’s results-based budget, including the provision of training on gender-budgeting to selected ministries;
+
+(d) the upgrading of the Borrower’s public procurement database; and
+
+(e) the preparation of an Open Contracting Data Standards readiness study.
+
+Result Area 2. Improving Public Revenue Management
+
+Provision of support for the strengthening of public revenue management through the following activities, including:
+
+(a) the roll-out of a multi-year risk management action plan aimed at ensuring increased tax compliance;
+
+(b) the strengthening of the data sharing with the tax administration through the interoperability of relevant platforms;
+
+(c) the introduction of digital tools to pay taxes and the digitalization of back-end processes; and
+
+(d) the upgrade of the GIR-CT system to synchronize central government systems with municipal systems.
+
+── Page 6 ──
+Result Area 3. Improving the Foundations of Digital Transformation through Interoperability and Open Data
+
+Provision of support for the implementation of the Borrower’s agendas on national interoperability and open data to support digital transformation and citizen-centric service delivery through the following activities, including:
+
+(a) the adoption and operationalization of the enabling legal and regulatory framework for improved data and systems interoperability;
+
+(b) the operationalization of an upgraded national interoperability platform to support administrative simplification and e-service delivery through integrated data exchanges ("use cases");
+
+(c) the strengthening of the regulatory and institutional framework for the proactive disclosure of open data;
+
+(d) the preparation of a data inventory to identify priority datasets for publication;
+
+(e) the improvement of the relevance, quality and usability of datasets through the carrying out of consultations with government entities and end users on data standards, prioritization criteria for publication of datasets and hackathon themes to promote user demand for open data;
+
+(f) the upgrade of the national open data platform to include an integrated interactive window to collect feedback and support user engagement; and
+
+(g) the publication of open data in an open and reusable format, with the appropriate safeguards and accompanying open database license to support trusted reuse.
+
+── Page 7 ──
+SCHEDULE 2
+
+Program Execution
+
+Section I. Implementation Arrangements
+
+A. Program Institutions
+
+1. The Borrower shall vest the overall responsibility for the coordination, monitoring and evaluation of the Program in the MEF, and to this end, shall, through the MEF:
+
+(a) no later than thirty (30) days after the Effective Date, or such later date as agreed by the Bank, appoint and thereafter maintain, throughout Program implementation, a Program Management Unit (“PMU”), responsible for the monitoring of day-to-day implementation of the Program, including the preparation of the Program’s annual progress reports, preparation of pertinent financial statements, and staffed with adequate professional, fiduciary, administrative a...</pre>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">PDF Reference (pdfplumber)</span>
+            <span class="badge ok">OK</span>
+          </div>
+          <div class="stats">31,305 chars &nbsp;|&nbsp; 0.0s</div>
+          <pre>── Page 1 ──
+|  | LOAN NUMBER 9317-MA |
+| :--- | :--- |
+| Loan Agreement |  |
+| (Public Sector Performance | -ENNAJAA- Program) |
+| between |  |
+| KINGDOM | OF MOROCCO and |
+| INTERNATIONAL BANK | FOR RECONSTRUCTION |
+| AND DEVELOPMENT |  |
+
+── Page 2 ──
+LOAN NUMBER 9317-MA
+LOAN AGREEMENT
+AGREEMENT dated as of the Signature Date between KINGDOM OF
+MOROCCO ("Borrower") and INTERNATIONAL BANK FOR RECONSTRUCTION
+AND DEVELOPMENT ("Bank"). The Borrower and the Bank hereby agree as follows:
+ARTICLE I - GENERAL CONDITIONS; DEFINITIONS
+1.01. The General Conditions (as defined in the Appendix to this Agreement) apply to
+and form part of this Agreement.
+1.02. Unless the context requires otherwise, the capitalized terms used in this Agreement
+have the meanings ascribed to them in the General Conditions or in the Appendix
+to this Agreement.
+ARTICLE II- LOAN
+2.01. The Bank agrees to lend to the Borrower the amount of three hundred eighty-six
+million two hundred thousand Euro (EUR386,200,000), as such amount may be
+converted from time to time through a Currency Conversion ("Loan"), to assist in
+financing the program described in Schedule I to this Agreement ("Program").
+2.02. The Borrower may withdraw the proceeds of the Loan in accordance with Section
+TV of Schedule 2 to this Agreement. All withdrawals from the Loan Account shall
+be deposited by the Bank into an account specified by the Borrower and acceptable
+to the Bank.
+2.03. The Front-end Fee is one quarter of one percent (0.25%) of the Loan amount.
+2.04. The Commitment Charge is one quarter of one percent (0.25%) per annum on the
+Unwithdrawn Loan Balance.
+2.05. The interest rate is the Reference Rate plus the Variable Spread; or such rate as
+may apply following a Conversion; subject to Section 3.02(e) of the General
+Conditions.
+2.06. The Borrower elects to apply the Automatic Rate Fixing Conversion to the Loan.
+Accordingly, without limitation upon the provisions of Article IV of the General
+Conditions and unless otherwise notified by the Borrower to the Bank in
+accordance with the provisions of the Conversion Guidelines, the interest rate basis
+applicable to the aggregate principal amount of the Loan withdrawn during each
+Interest Period shall be converted from the initial Variable Rate based on a
+Reference Rate and the Variable Spread to a Variable Rate based on a Fixed
+Reference Rate and the Variable Spread for the full maturity of such amount in
+
+── Page 3 ──
+-2-
+| accordance | with the provisions of Article IV of the General Conditions and of the |
+| :--- | :--- |
+| Conversion | Guidelines. |
+| 2.07. The | Payment Dates are April 15 and October 15 in each year. |
+| 2.08. The | principal amount of the Loan shall be repaid in accordance with Schedule 3 to |
+| this | Agreement. ARTICLE III - PROGRAM |
+| 3.01. The | Borrower declares its commitment to the objectives of the Program. To this |
+| end, | the Borrower shall carry out the Program through the Ministry of Economy |
+| and | Finances ("MEF") in accordance with the provisions of Article V of the |
+| General | Conditions and Schedule 2 to this Agreement. ARTICLE IV - TERMINATION |
+| 4.01. The | Effectiveness Deadline is the date ninety (90) days after the Signature Date. ARTICLE V-REPRESENTATIVE; ADDRESSES |
+| 5.01. The | Borrower's Representative is the Minister in charge of finances. |
+| 5.02. For | purposes of Section 10.01 ofthe General Conditions: |
+| (a) | the Borrower's address is: Minist&amp;re de I'Economie el des Finances Quartier Administratif Avenue Mohammed V Rabat Kingdom of Morocco; and |
+| (b) | the Borrower's Electronic Address is: Cable address: Facsimile: MINFIN (+21 2)-537-67-75-30/3 1 (+212)-537-76-40-8 I |
+| 5.03. For | purposes of Section 10.01 of the General Conditions: |
+| (a) | the Bank's address is: International Bank for Reconstruction and Development 1818 H Street, N.W. |
+
+── Page 4 ──
+-3-
+| Washington, | D.C. 20433 |  |  |
+| :--- | :--- | :--- | :--- |
+| United | States of America; | and |  |
+| (b) the Bank's | Electronic | Address is: |  |
+| Telex: | Facsimile: |  |  |
+| 248423(MCI) | or | (+1 )-202-477-6391 |  |
+| 64145(MCI) |  |  |  |
+| AGREED as of the Signature | Date. KINGDOM By INTERNATIONAL AND DEVELOPMENT By | OF MOROCCO Name: Title: Date: BANK Name:( Title: Date: | Authorized Representative ETx. \ J f 4C IJ 1 a(i rh FOR RECONSTRUCTION Authorized Representative k t, 1 2.i , , tir 4 1 , AI 7- |
+
+── Page 5 ──
+-4-
+|  | SCHEDULE |
+| :--- | :--- |
+|  | I |
+|  | Program Description |
+| The | objective of the Program is to improve performance and transparency of |
+| government | operations and service delivery. |
+| The | Program consists of the following activities: |
+| Result Area | 1. Improving the Efficiency of Public Expenditure |
+| Provision of | support for the implementation of the Organic Budget Law and the |
+| strengthening | of the value for money in public procurement through the following |
+| activities, including: |  |
+| (a) | the adoption of quality standards of performance indicators and a management control charter; |
+| (b) | the reform of the budget structure of the Regions, including a performance-based classification; |
+| (c) | the integration of gender and climate responsive considerations into the Borrower's results-based budget, including the provision of training on gender-budgeting to selected ministries; |
+| (d) | the upgrading of the Borrower's public procurement database; and |
+| (e) | the preparation of an Open Contracting Data Standards readiness study. |
+| Result Area | 2. Improving Public Revenue Management |
+| Provision of | support for the strengthening of public revenue management through the |
+| following activities, | including: |
+| (a) | the roll-out of a multi-year risk management action plan aimed at ensuring increased tax compliance; |
+| (b) | the strengthening of the data sharing with the tax administration through the interoperability of relevant platforms; |
+| (c) | the introduction of digital tools to pay taxes and the digitalization of back- end processes; and |
+| (d) | the upgrade of the GIR-CT system to synchronize central government systems with municipal systems. |
+
+── Page 6 ──
+-5-
+Result Area 3. Improving the Foundations of Digital Transformation through
+Interoperability and Open Data
+Provision of support for the implementation of the Borrower's agendas on national
+interoperability and open data to support digital transformation and citizen-centric service
+delivery through the following activities, including:
+(a) the adoption and operationalization of the enabling legal and regulatory
+framework for improved data and systems interoperability;
+(b) the operationalization of an upgraded national interoperability platform to
+support administrative simplification and e-service delivery through
+integrated data exchanges ("use cases");
+(c) the strengthening of the regulatory and institutional framework for the
+proactive disclosure of open data;
+(d) the preparation of a data inventory to identify priority datasets for
+publication;
+(e) the improvement of the relevance, quality and usability of datasets through
+the carrying out of consultations with government entities and end users
+on data standards, prioritization criteria for publication of datasets and
+hackathon themes to promote user demand for open data;
+(f) the upgrade of the national open data platform to include an integrated
+interactive window to collect feedback and support user engagement; and
+(g) the publication of open data in an open and reusable format, with the
+appropriate safeguards and accompanying open database license to
+support trusted reuse.
+
+── Page 7 ──
+-6-
+SCHEDULE 2
+Program Execution
+Section 1. Implementation Arrangements
+A. Program Institutions
+1. The Borrower shall vest the overall responsibility for the coordination, monitoring
+and evaluation ofthe Program in the MEF, and to this end, shall, through the MEF:
+(a) no later than thirty (30) days after the Effective Date, or such later date as
+agreed by the B...</pre>
+        </div>
+        
+</div>
+</body>
+</html>

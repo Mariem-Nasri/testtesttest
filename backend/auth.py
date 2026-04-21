@@ -1,8 +1,12 @@
 """
 auth.py
 ──────────────────────────────────────────────────────────────────────────────
-JWT authentication helpers.
-Demo user is hardcoded (no DB user table needed for this intern project).
+JWT authentication with role-based access.
+
+Roles:
+  banking    → can upload: ISDA, Loan Agreement, Credit Agreement
+  insurance  → can upload: Insurance Policy, Invoice, Settlement
+  compliance → can upload: Compliance Report, Risk Assessment, Audit Report
 """
 
 from datetime import datetime, timedelta
@@ -18,22 +22,35 @@ SECRET_KEY  = "docai-vermeg-secret-2025-xK9#mP2@nL5"
 ALGORITHM   = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8   # 8 hours
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
-# ── Demo users (extend to DB later) ──────────────────────────────────────────
+# ── Users DB (extend to DB later) ────────────────────────────────────────────
+# role: "banking" | "insurance" | "compliance" | "admin"
 USERS_DB = {
     "mariem@vermeg.com": {
-        "email":    "mariem@vermeg.com",
-        "name":     "Mariem Nasri",
-        "role":     "Data Scientist — Intern",
+        "email":           "mariem@vermeg.com",
+        "name":            "Mariem Nasri",
+        "role":            "banking",          # banking user
         "hashed_password": pwd_context.hash("vermeg2025"),
     },
     "admin@vermeg.com": {
-        "email":    "admin@vermeg.com",
-        "name":     "Admin VERMEG",
-        "role":     "Administrator",
+        "email":           "admin@vermeg.com",
+        "name":            "Admin VERMEG",
+        "role":            "admin",            # admin can access all doc types
         "hashed_password": pwd_context.hash("admin2025"),
+    },
+    "insurance@vermeg.com": {
+        "email":           "insurance@vermeg.com",
+        "name":            "Insurance Analyst",
+        "role":            "insurance",
+        "hashed_password": pwd_context.hash("insurance2025"),
+    },
+    "compliance@vermeg.com": {
+        "email":           "compliance@vermeg.com",
+        "name":            "Compliance Officer",
+        "role":            "compliance",
+        "hashed_password": pwd_context.hash("compliance2025"),
     },
 }
 

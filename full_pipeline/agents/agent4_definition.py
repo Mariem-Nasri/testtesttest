@@ -118,6 +118,25 @@ Return ONLY JSON, no explanation:
 }}"""
 
 
+def _build_generation_prompt(key_name: str) -> str:
+    return f"""You are an expert document extractor for financial and legal agreements.
+Generate a concise plain-language description of the following term in the context of loan agreements and project financing.
+
+TERM: "{key_name}"
+
+Instructions:
+1. Write a one-sentence definition in plain language.
+2. Keep it general enough to apply across loan and agreement documents.
+3. Do not invent numeric values.
+4. Return ONLY JSON, no explanation:
+{{
+  "definition_text": "<plain language definition>",
+  "expected_format": "ratio/percentage/date/currency/number/text",
+  "value_hint": null,
+  "related_table": null,
+  "source_page": null
+}}"""
+
 def run(key_name: str, top_definitions: list[dict],
         client, timer=None) -> dict:
     """
@@ -134,11 +153,11 @@ def run(key_name: str, top_definitions: list[dict],
     # Always infer format from key name as a baseline — no LLM needed
     fmt = _infer_format_from_key_name(key_name)
 
-    # If no definitions found via embedding, return minimal result
+    # If no definitions found via embedding, return empty string (never generate).
     if not top_definitions or top_definitions[0]["score"] < 0.35:
-        step_output("Status:", "No matching definition found in document")
+        step_output("Status:", "No matching definition found in document — returning empty")
         return {
-            "definition_text": f"No formal definition found for '{key_name}'",
+            "definition_text": "",   # empty, not generated
             "expected_format": fmt,
             "value_hint":      None,
             "related_table":   None,

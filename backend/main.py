@@ -36,7 +36,7 @@ from routers           import documents as docs_router
 app = FastAPI(
     title       = "DocAI API",
     description = "OCR + Multi-Agent Extraction Pipeline — VERMEG PFE 2025-2026",
-    version     = "1.0.0",
+    version     = "2.0.0",
     docs_url    = "/api/docs",
     redoc_url   = "/api/redoc",
     openapi_url = "/api/openapi.json",
@@ -60,8 +60,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     init_db()
-    import pipeline_runner
-    pipeline_runner.prewarm()   # pre-load sentence-transformers in background thread
+    # No prewarm needed — LLM-only pipeline, no sentence-transformers
 
 
 # ── Routers ───────────────────────────────────────────────────────────────────

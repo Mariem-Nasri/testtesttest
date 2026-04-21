@@ -1,24 +1,30 @@
 """
-run_pipeline.py [IMPROVED VERSION]
-══════════════════════════════════
-Entry point for the full 4-agent extraction pipeline.
+run_pipeline.py — New 3-Phase Multi-Agent Pipeline
+═══════════════════════════════════════════════════
+Architecture:
 
-IMPROVEMENTS:
-  ✓ Fixed hardcoded path (now dynamic)
-  ✓ Added input validation
-  ✓ Added configuration constants
-  ✓ Better error handling
-  ✓ Magic numbers replaced with config
+  Phase 1: Document Map (1 LLM call, shared across all keys)
+           → Identifies WHERE each topic is + TABLE or PARAGRAPH
+
+  Phase 2: Per-key parallel extraction (6 workers)
+           type="table"  → Tables Agent → Rules Sub-Agent
+           type="paragraph" → Doc-Type Sub-Agent (Terms Agent if needed)
+           Always parallel: Description Agent
+
+  Phase 3: Validator (format check first, LLM only when needed)
 
 Usage:
-    export GROQ_API_KEY='gsk_...'
-    python run_pipeline.py --ocr full_report.txt --keys keys.json
+  # Local (financial data security, fully offline):
+  OLLAMA_HOST=http://127.0.0.1:11434 python run_pipeline.py \\
+    --ocr full_report.txt --keys keys.json --backend ollama
 
-    # Local phi3.5:
-    python run_pipeline.py --ocr full_report.txt --keys keys.json --backend ollama
+  # Cloud (Groq, free tier):
+  export GROQ_API_KEY='gsk_...'
+  python run_pipeline.py --ocr full_report.txt --keys keys.json
 
-    # Use cached index (faster re-runs on same document):
-    python run_pipeline.py --ocr full_report.txt --keys keys.json --use-cache
+  # With role/doc-type (multi-role mode):
+  python run_pipeline.py --ocr full_report.txt --keys keys.json \\
+    --doc-type loan --role banking
 """
 
 import sys
@@ -28,22 +34,25 @@ import time
 import argparse
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-from core.llm_client    import build_agent_clients, model_summary
-from utils.format_detector import detect_format, merge_format
-from core.index_builder import DocumentIndex
-from utils.timer        import StepTimer, fmt_time
-from utils.display      import section, result_row, step_output
+from core.llm_client import build_agent_clients, model_summary
+from utils.format_detector import detect_format
+from utils.timer import StepTimer, fmt_time
+from utils.display import section, result_row
 
-import agents.agent1_router     as agent1
-import agents.agent2_table      as agent2
-import agents.agent3_validator  as agent3
-import agents.agent4_definition as agent4
+import agents.agent_document_map   as doc_map_agent
+import agents.agent_tables         as tables_agent
+import agents.agent_rules_extractor as rules_agent
+import agents.agent_terms_extractor as terms_agent
+import agents.agent_description    as description_agent
+import agents.agent_validator      as validator_agent
+import agents.agent5_keyword       as keyword_agent
 
+# ── Colors ────────────────────────────────────────────────────────────────────
 GREEN  = "\033[92m"
 YELLOW = "\033[93m"
 RED    = "\033[91m"
@@ -51,178 +60,44 @@ BOLD   = "\033[1m"
 DIM    = "\033[2m"
 RESET  = "\033[0m"
 
-
-# =============================================================================
-# PIPELINE CONFIGURATION
-# =============================================================================
-
-@dataclass(frozen=True)
-class PipelineConfig:
-    """Centralized configuration for the extraction pipeline."""
-    
-    # ── Agent 1: Embedding Router ─────────────────────────────────────────────
-    EMBEDDING_CONFIDENCE_THRESHOLD = 0.82      # Skip Agent 2 if >= this
-    ROUTER_LLM_FALLBACK_THRESHOLD = 0.45       # Use LLM if < this
-    
-    # ── Agent 3: Validator ─────────────────────────────────────────────────────
-    SCORE_THRESHOLD_HIGH = 0.8                 # High confidence
-    SCORE_THRESHOLD_MEDIUM = 0.6               # Medium confidence
-    LLM_VALIDATION_THRESHOLD = 0.85             # Call LLM validator if score < this
-    
-    # ── Embedding validation ───────────────────────────────────────────────────
-    RATIO_TOLERANCE = 0.01                     # Max difference for ratio values
-    MAX_PAGES_FOR_LLM = 15                     # Max pages to summarize
-    SUMMARY_CHARS_PER_PAGE = 300               # Characters per page summary
-    
-    # ── API & Retry Logic ──────────────────────────────────────────────────────
-    MAX_RETRIES = 3                            # Max API retry attempts
-    TIMEOUT_SECONDS = 60                       # API timeout
-    RATE_LIMIT_WAIT_BASE = 30                  # Base wait time (seconds)
-    
-    # ── Paths ──────────────────────────────────────────────────────────────────
-    OUTPUT_DIR = Path(__file__).parent / "outputs"
-    CACHE_DIR = Path(__file__).parent / ".cache"
-
-# Make it accessible globally
-CONFIG = PipelineConfig()
+# ── Config ────────────────────────────────────────────────────────────────────
+SCORE_HIGH   = 0.8
+SCORE_MEDIUM = 0.6
+OUTPUT_DIR   = Path(__file__).parent / "outputs"
 
 
 # =============================================================================
-# INPUT VALIDATION
+# INPUT LOADING
 # =============================================================================
 
 def load_inputs(ocr_path: Path, keys_path: Path) -> tuple[str, list]:
-    """
-    Load and validate OCR text and keys JSON.
-    
-    Args:
-        ocr_path: Path to OCR text file
-        keys_path: Path to keys JSON file
-    
-    Returns:
-        (ocr_text, keys_list)
-    
-    Raises:
-        FileNotFoundError: If files don't exist
-        ValueError: If files are invalid
-        json.JSONDecodeError: If JSON is malformed
-    """
-    # ── Validate file existence ───────────────────────────────────────────────
+    """Load OCR text and keys JSON, validate both."""
     if not ocr_path.exists():
-        raise FileNotFoundError(
-            f"{RED}✗ OCR file not found:{RESET} {ocr_path.absolute()}\n"
-            f"  Create it with: python extract_text.py"
-        )
-    
+        raise FileNotFoundError(f"OCR file not found: {ocr_path}")
     if not keys_path.exists():
-        raise FileNotFoundError(
-            f"{RED}✗ Keys file not found:{RESET} {keys_path.absolute()}\n"
-            f"  Check the path and try again."
-        )
-    
-    # ── Load OCR text ──────────────────────────────────────────────────────────
-    try:
-        ocr_text = ocr_path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as e:
-        raise ValueError(
-            f"{RED}✗ Failed to read OCR file as UTF-8:{RESET}\n"
-            f"  Error: {e}\n"
-            f"  Try: file {ocr_path} (to check encoding)"
-        )
-    except Exception as e:
-        raise ValueError(f"{RED}✗ Error reading OCR file:{RESET} {e}")
-    
-    if not ocr_text.strip():
-        raise ValueError(
-            f"{RED}✗ OCR file is empty:{RESET} {ocr_path}\n"
-            f"  Expected: OCR text content"
-        )
-    
-    # ── Load keys JSON ──────────────────────────────────────────────────────────
-    try:
-        keys_raw = keys_path.read_text(encoding="utf-8")
-        keys_data = json.loads(keys_raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"{RED}✗ Invalid JSON in keys file:{RESET} {keys_path}\n"
-            f"  Error: {e}\n"
-            f"  Line {e.lineno}: {e.msg}\n"
-            f"  Fix the JSON and try again"
-        )
-    except Exception as e:
-        raise ValueError(f"{RED}✗ Error reading keys file:{RESET} {e}")
-    
-    # ── Extract keys list ──────────────────────────────────────────────────────
+        raise FileNotFoundError(f"Keys file not found: {keys_path}")
+
+    ocr_text  = ocr_path.read_text(encoding="utf-8")
+    keys_raw  = keys_path.read_text(encoding="utf-8")
+    keys_data = json.loads(keys_raw)
+
     if isinstance(keys_data, dict):
-        if "keys" not in keys_data:
-            raise ValueError(
-                f"{RED}✗ Keys JSON is a dict but has no 'keys' field.{RESET}\n"
-                f"  Expected: {{'keys': [...]}}\n"
-                f"  Got: {list(keys_data.keys())}"
-            )
-        keys = keys_data["keys"]
+        keys = keys_data.get("keys", [])
     elif isinstance(keys_data, list):
         keys = keys_data
     else:
-        raise ValueError(
-            f"{RED}✗ Keys must be dict or list, got {type(keys_data).__name__}{RESET}\n"
-            f"  Expected: {{'keys': [...]}} or [...]"
-        )
-    
-    # ── Validate keys structure ────────────────────────────────────────────────
+        raise ValueError("Keys must be a list or {keys: [...]}")
+
     if not keys:
-        raise ValueError(f"{RED}✗ Keys list is empty. Nothing to extract.{RESET}")
-    
-    for i, key in enumerate(keys):
-        if not isinstance(key, dict):
-            raise ValueError(
-                f"{RED}✗ Key #{i} is not a dict:{RESET} {key}\n"
-                f"  All keys must be dictionaries"
-            )
-        if "keyName" not in key:
-            raise ValueError(
-                f"{RED}✗ Key #{i} missing required field 'keyName'.{RESET}\n"
-                f"  Fields present: {list(key.keys())}\n"
-                f"  Expected: {{'keyName': 'Your Key Name', ...}}"
-            )
-    
-    # ── Auto-fill empty descriptions with sensible defaults ───────────────────
-    # When the user uploads a keys.json with blank keyNameDescription fields,
-    # the embedding query degrades to just the key name alone. These defaults
-    # provide enough context for the agents to find the right snippet.
-    _DEFAULT_DESCRIPTIONS = {
-        "loan number":                        "Unique identifier assigned to this loan agreement, typically alphanumeric.",
-        "agreement date":                     "The date on which this loan agreement was signed or became effective.",
-        "program name":                       "Official name of the development program or project being financed, typically in the first 1-3 pages in the preamble, recitals, or WHEREAS clauses (e.g., 'Program for Results', 'Development Policy Loan', 'Catastrophe Deferred Drawdown Option'). Usually appears after phrases like 'the Borrower intends to carry out' or 'in support of'.",
-        "borrower":                           "Name of the borrowing party — country, government entity, or institution — that receives the loan funds.",
-        "lender":                             "Name of the lending institution or bank providing the loan funds.",
-        "lender / bank":                      "Name of the lending institution or bank providing the loan funds.",
-        "bank":                               "Name of the lending bank or financial institution providing the loan.",
-        "borrower authorized representative - name": "Full name of the person authorized to sign on behalf of the Borrower (the country/government side). Found in the Borrower's signature block, NOT the Bank's signature block.",
-        "borrower authorized representative - title": "Official title or position of the Borrower's authorized signatory (government minister or official). Found in the Borrower's signature block.",
-        "bank authorized representative - name":     "Full name of the person authorized to sign on behalf of the Bank (the lending institution side, e.g., World Bank Country Director or Vice President). Found in the Bank's signature block, NOT the Borrower's signature block.",
-        "bank authorized representative - title":    "Official title or position of the Bank's authorized signatory (e.g., Country Director, Regional Vice President). Found in the Bank's signature block, NOT the Borrower's signature block.",
-        "loan amount":                        "Total principal amount of the loan in the agreed currency (e.g., EUR 386,200,000).",
-        "loan currency":                      "ISO 4217 three-letter code of the loan principal denomination currency (e.g., EUR in 'EUR 386,200,000'). This is the principal denomination currency, NOT an interest rate benchmark. Extract only the 3-letter code.",
-        "interest rate":                      "Applicable interest rate or spread on the loan principal.",
-        "front-end fee":                      "One-time fee paid at loan effectiveness, expressed as a percentage of the loan amount.",
-        "commitment charge":                  "Annual charge on the undisbursed loan balance, expressed as a percentage.",
-        "maturity date":                      "Final repayment date of the loan principal.",
-        "closing date":                       "Date after which no further withdrawals may be made from the loan account.",
-        "effective date":                     "Date on which the loan agreement enters into force.",
-        "payment dates":                      "Scheduled dates on which principal and/or interest payments are due.",
-        "governing law":                      "Legal jurisdiction whose laws govern this agreement.",
-        "program description":                "Brief description of the program or project being financed.",
-    }
+        raise ValueError("Keys list is empty")
+
+    # Normalize optional fields
     for key in keys:
-        desc = (key.get("keyNameDescription") or "").strip()
-        if not desc:
-            canonical = key["keyName"].lower().strip()
-            key["keyNameDescription"] = _DEFAULT_DESCRIPTIONS.get(canonical, "")
+        key.setdefault("keyNameDescription", "")
+        key.setdefault("searchType", "")
+        key.setdefault("expectedFormat", "")
 
-    print(f"{GREEN}✓ Loaded {len(ocr_text):,} chars from {ocr_path.name}{RESET}")
-    print(f"{GREEN}✓ Loaded {len(keys)} keys from {keys_path.name}{RESET}")
-
+    print(f"{GREEN}✓ Loaded {len(ocr_text):,} chars | {len(keys)} keys{RESET}")
     return ocr_text, keys
 
 
@@ -230,163 +105,242 @@ def load_inputs(ocr_path: Path, keys_path: Path) -> tuple[str, list]:
 # SINGLE KEY EXTRACTION
 # =============================================================================
 
-def extract_one(key_def: dict, index: DocumentIndex,
-                ocr_text: str, clients: dict) -> dict:
+def extract_one(key_def: dict,
+                doc_map: dict,
+                ocr_text: str,
+                clients: dict,
+                doc_type: str = "loan") -> dict:
     """
-    Run all 4 agents for one key.
+    Run the full agent pipeline for one key.
 
     Args:
-        key_def  : {keyName, keyNameDescription, ...}
-        index    : pre-built DocumentIndex
+        key_def  : {keyName, keyNameDescription, searchType, expectedFormat}
+        doc_map  : output from Phase 1 Document Map
         ocr_text : full OCR text
-        clients  : dict of LLMClient per agent
-                   {"agent1", "agent2", "agent3", "agent4"}
+        clients  : {doc_map, tables, rules, terms, description, validator, keyword}
+        doc_type : "loan", "isda", "invoice", "compliance_report"
 
     Returns:
-        result dict with value, score, reason, _debug
+        result dict with value, score, reason, page, description, rule_context, found_in
     """
-    key_name = key_def["keyName"]
-    key_desc = key_def.get("keyNameDescription", "")
-    timing   = {}
+    key_name  = key_def["keyName"]
+    key_desc  = key_def.get("keyNameDescription", "")
+    timing    = {}
     llm_calls = 0
 
-    # ── Agent 1 — Embedding Router ────────────────────────────────────────────
-    # Primary: cosine similarity (no LLM, ~2ms)
-    # Fallback: llama-4-scout when confidence < 0.45
-    t0    = time.time()
-    a1out = agent1.run(
-        key_name        = key_name,
-        key_description = key_desc,
-        index           = index,
-        client          = clients["agent1"],
-        ocr_text        = ocr_text,
-        thresholds      = {
-            "HIGH_CONFIDENCE": CONFIG.EMBEDDING_CONFIDENCE_THRESHOLD,
-            "VERY_LOW_CONF":   CONFIG.ROUTER_LLM_FALLBACK_THRESHOLD,
-        },
-    )
-    timing["agent1_router"] = time.time() - t0
-    if a1out.get("router_used_llm"):
-        llm_calls += 1
+    # ── Keyword-only search (explicit) ────────────────────────────────────────
+    if key_def.get("searchType", "").strip().lower() == "keyword":
+        t0     = time.time()
+        a5out  = keyword_agent.run(key_name, key_desc, ocr_text, client=None)
+        timing["keyword_search"] = time.time() - t0
+        return {
+            "keyName":            key_name,
+            "keyNameDescription": key_desc,
+            "page":               ", ".join(str(m["page"]) for m in a5out["matches"]),
+            "value":              a5out["value"],
+            "score":              1.0 if a5out["count"] > 0 else 0.0,
+            "reason":             f"Found {a5out['count']} occurrences",
+            "description":        "",
+            "rule_context":       None,
+            "found_in":           "keyword_search",
+            "_debug":             {"timing": timing, "llm_calls": 0},
+        }
 
-    # ── Agent 4 — Definition Extractor ───────────────────────────────────────
-    # Always runs — feeds definition + expected_format into Agent 3
-    # Uses llama-4-scout (fast)
-    t0    = time.time()
-    a4out = agent4.run(
-        key_name        = key_name,
-        top_definitions = a1out["top_definitions"],
-        client          = clients["agent4"],
-    )
-    timing["agent4_definition"] = time.time() - t0
-    llm_calls += 1
-
-    # ── Agent 2 — Table Specialist ────────────────────────────────────────────
-    # Only called when Agent 1 confidence < threshold (configurable)
-    # Uses llama-4-maverick (best accuracy for table reading)
-    if a1out["needs_llm"]:
-        t0    = time.time()
-        a2out = agent2.run(
-            key_name        = key_name,
-            key_description = key_desc,
-            top_cells       = a1out["top_cells"],
-            client          = clients["agent2"],
-        )
-        timing["agent2_table"] = time.time() - t0
-        llm_calls += 1
-
-        extracted_value = a2out.get("value")
-        row_label       = a2out.get("row_label")
-        col_label       = a2out.get("column_label")
-
-        # If Agent 2 returns null:
-        #   1. Try value_hint from Agent 4 (for covenant keys)
-        #   2. Fall back to top embedding match
-        if extracted_value is None:
-            if a4out.get("value_hint"):
-                extracted_value = a4out["value_hint"]
-                row_label       = "covenant"
-                col_label       = "threshold"
-                a1out["confidence"] = 0.90  # treat value_hint as high confidence
-                print(f"  {GREEN}✓ Agent 2 null → using Agent 4 value_hint: {extracted_value}{RESET}")
-            elif a1out["top_cells"]:
-                extracted_value = a1out["top_cells"][0]["value"]
-                row_label       = a1out["top_cells"][0]["row_label"]
-                col_label       = a1out["top_cells"][0]["col_label"]
-                print(f"  {YELLOW}⚠ Agent 2 null → using embedding fallback{RESET}")
-    else:
-        # High confidence: extract directly from embedding, skip Agent 2
-        extracted_value = a1out["best_value"]
-        row_label       = a1out["top_cells"][0]["row_label"] if a1out["top_cells"] else None
-        col_label       = a1out["top_cells"][0]["col_label"] if a1out["top_cells"] else None
-        timing["agent2_table"] = 0.0
-        print(f"  {GREEN}✓ Agent 2 skipped (confidence={a1out['confidence']:.3f} ≥ {CONFIG.EMBEDDING_CONFIDENCE_THRESHOLD}){RESET}")
-
-    # ── Agent 3 — Validator ───────────────────────────────────────────────────
-    # Determine format: rule-based first, Agent 4 as fallback
+    # ── Determine expected format ─────────────────────────────────────────────
     rule_format     = detect_format(key_name, key_desc)
-    expected_format = merge_format(
-        rule_based    = rule_format,
-        agent4_format = a4out.get("expected_format", "text"),
-        key_name      = key_name,
-    )
-    print(f"  Format: rule={rule_format}  agent4={a4out.get('expected_format','?')}  final={expected_format}")
+    expected_format = key_def.get("expectedFormat") or rule_format or "text"
 
-    t0    = time.time()
-    a3out = agent3.run(
+    # ── Find relevant section from Document Map ───────────────────────────────
+    section_info = doc_map_agent.find_section_for_key(key_name, key_desc, doc_map)
+    relevant_pages = section_info.get("pages", [])
+    content_type   = section_info.get("type", "paragraph")
+
+    print(f"  Route: '{section_info['topic'][:40]}' p.{relevant_pages} → {content_type}")
+
+    page_text = doc_map_agent.get_page_texts(ocr_text, relevant_pages)
+
+    # ── Description Agent (always runs, parallel) ─────────────────────────────
+    t_desc_start = time.time()
+    def _run_description():
+        return description_agent.run(
+            key_name          = key_name,
+            ocr_text          = ocr_text,
+            definitions_pages = doc_map.get("definitions_pages", []),
+            client            = clients["description"],
+        )
+
+    # ── Extraction branch ─────────────────────────────────────────────────────
+    value_result   = {}
+    rule_context   = None
+    found_in       = "not_found"
+    extraction_page = None
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        # Start description agent in parallel
+        desc_future = ex.submit(_run_description)
+
+        t0 = time.time()
+
+        if content_type == "table":
+            # ── Table path: Tables Agent → Rules Sub-Agent ────────────────────
+            table_result = tables_agent.run(
+                key_name   = key_name,
+                key_desc   = key_desc,
+                page_texts = page_text,
+                client     = clients["tables"],
+            )
+            timing["tables_agent"] = time.time() - t0
+            llm_calls += 1
+
+            if table_result.get("value") is not None:
+                found_in = "table"
+                extraction_page = table_result.get("page")
+
+                # Always run Rules Sub-Agent to add rule context
+                # Pass table_text so surrounding search is term-driven
+                surrounding = doc_map_agent.get_surrounding_paragraphs(
+                    ocr_text, relevant_pages,
+                    context_pages=1,
+                    table_text=page_text,
+                )
+                t_rules = time.time()
+                rules_result = rules_agent.run(
+                    key_name         = key_name,
+                    key_desc         = key_desc,
+                    table_result     = table_result,
+                    surrounding_text = surrounding,
+                    client           = clients["rules"],
+                    doc_type         = doc_type,
+                )
+                timing["rules_agent"] = time.time() - t_rules
+                llm_calls += 1
+
+                value_result = rules_result
+                rule_context = rules_result.get("rule_context")
+            else:
+                # Table agent found nothing → fallback to paragraph
+                # Include adjacent pages (cross-page table headers live there)
+                print(f"  {YELLOW}⚠ Table agent null → fallback to paragraph{RESET}")
+                surrounding = doc_map_agent.get_surrounding_paragraphs(
+                    ocr_text, relevant_pages,
+                    context_pages=2,
+                    table_text=page_text,
+                )
+                fallback_text = (surrounding + "\n\n" + page_text) if surrounding else page_text
+                t_terms = time.time()
+                value_result = terms_agent.run(
+                    key_name  = key_name,
+                    key_desc  = key_desc,
+                    page_text = fallback_text,
+                    client    = clients["terms"],
+                    doc_type  = doc_type,
+                )
+                timing["terms_fallback"] = time.time() - t_terms
+                llm_calls += 1
+                found_in = value_result.get("found_in", "not_found")
+                extraction_page = value_result.get("page")
+
+        else:
+            # ── Paragraph path: Doc-Type Sub-Agent (Terms Agent) ──────────────
+            t_terms = time.time()
+            value_result = terms_agent.run(
+                key_name  = key_name,
+                key_desc  = key_desc,
+                page_text = page_text,
+                client    = clients["terms"],
+                doc_type  = doc_type,
+            )
+            timing["terms_agent"] = time.time() - t_terms
+            llm_calls += 1
+            found_in        = value_result.get("found_in", "not_found")
+            extraction_page = value_result.get("page")
+
+            # If nothing found in primary pages, extend search to nearby pages
+            if value_result.get("value") is None:
+                all_pages = list(doc_map.get("_page_index", {}).keys())
+                broader_pages = [p for p in all_pages if p not in relevant_pages][:4]
+                if broader_pages:
+                    print(f"  {YELLOW}⚠ Not found in p.{relevant_pages} → trying p.{broader_pages}{RESET}")
+                    broader_text = doc_map_agent.get_page_texts(ocr_text, broader_pages)
+                    t_broad = time.time()
+                    broad_result = terms_agent.run(
+                        key_name  = key_name,
+                        key_desc  = key_desc,
+                        page_text = broader_text,
+                        client    = clients["terms"],
+                        doc_type  = doc_type,
+                    )
+                    timing["terms_broader"] = time.time() - t_broad
+                    llm_calls += 1
+                    if broad_result.get("value") is not None:
+                        value_result    = broad_result
+                        found_in        = broad_result.get("found_in", "paragraph")
+                        extraction_page = broad_result.get("page")
+
+        # Wait for description agent
+        try:
+            desc_result = desc_future.result(timeout=30)
+        except Exception as e:
+            print(f"  {YELLOW}⚠ Description agent failed: {e}{RESET}")
+            desc_result = {"definition_text": "", "source_page": None}
+        timing["description_agent"] = time.time() - t_desc_start
+        llm_calls += 1
+
+    # ── Phase 3: Validator ────────────────────────────────────────────────────
+    extracted_value = value_result.get("value")
+    raw_confidence  = _confidence_from_result(value_result)
+
+    # Give the validator all relevant text + a window of the full doc for rescue scans
+    all_section_pages = doc_map_agent.get_page_texts(ocr_text, relevant_pages)
+    # Include first 3000 chars of full OCR so metadata embedded in page headers
+    # (e.g. currency in column headers on cross-page tables) is always reachable
+    full_doc_prefix = ocr_text[:3000]
+    validator_context = ((all_section_pages or page_text) + "\n\n" + full_doc_prefix)[:6000]
+
+    t0 = time.time()
+    validated = validator_agent.run(
         key_name        = key_name,
         value           = extracted_value,
-        row_label       = row_label,
-        col_label       = col_label,
-        embedding_score = a1out["confidence"],
         expected_format = expected_format,
-        definition_text = a4out.get("definition_text"),
-        value_hint      = a4out.get("value_hint"),
-        ocr_text        = ocr_text,
-        page_hint       = a1out["page_hint"],
-        client          = clients["agent3"],
+        definition_text = desc_result.get("definition_text", ""),
+        page_text       = validator_context,
+        client          = clients["validator"],
+        confidence      = raw_confidence,
     )
-    timing["agent3_validator"] = time.time() - t0
-    if a3out.get("score", 1.0) < CONFIG.LLM_VALIDATION_THRESHOLD:
+    timing["validator"] = time.time() - t0
+    if validated.get("score", 1.0) < 0.7:
         llm_calls += 1
 
-    # ── Per-key timing display ────────────────────────────────────────────────
-    section("Per-key timing")
-    for agent_name, duration in timing.items():
-        skipped = duration == 0.0
-        color   = DIM if skipped else ""
-        tag     = " (skipped)" if skipped else ""
-        print(f"    {color}{agent_name:28s} {fmt_time(duration)}{tag}{RESET}")
-    print(f"    {'llm_calls':28s} {llm_calls}")
-
-    # Determine which agent was the primary extractor
-    if timing.get("agent2_table", 0.0) > 0:
-        agent_used = "agent2_table"
-    elif a1out.get("router_used_llm"):
-        agent_used = "agent1_router"
-    else:
-        agent_used = "agent1_router"
-
+    # ── Build result ──────────────────────────────────────────────────────────
     return {
         "keyName":            key_name,
-        "keyNameDescription": a4out.get("definition_text", key_desc),
-        "page":               a1out["page_hint"],
-        "value":              a3out.get("value"),
-        "score":              a3out.get("score"),
-        "reason":             a3out.get("reason"),
+        "keyNameDescription": desc_result.get("definition_text") or key_desc,
+        "page":               str(extraction_page) if extraction_page else "",
+        "value":              validated.get("value"),
+        "score":              validated.get("score"),
+        "reason":             validated.get("reason"),
         "expected_format":    expected_format,
-        "format_valid":       a3out.get("format_valid", True),
-        "agent_used":         agent_used,
+        "format_valid":       validated.get("format_valid", True),
+        "description":        desc_result.get("definition_text", ""),
+        "rule_context":       rule_context or value_result.get("rule_context"),
+        "found_in":           found_in,
+        "section":            section_info.get("topic"),
         "_debug": {
-            "embedding_confidence": a1out["confidence"],
-            "llm_calls":            llm_calls,
-            "router_used_llm":      a1out.get("router_used_llm", False),
-            "row_label":            row_label,
-            "col_label":            col_label,
-            "value_hint":           a4out.get("value_hint"),
-            "timing":               timing,
-        }
+            "content_type":   content_type,
+            "section_pages":  relevant_pages,
+            "llm_calls":      llm_calls,
+            "timing":         timing,
+        },
     }
+
+
+def _confidence_from_result(result: dict) -> float:
+    """Map textual confidence to float."""
+    conf_map = {"high": 0.85, "medium": 0.6, "low": 0.35}
+    conf_str = result.get("confidence", "medium")
+    if isinstance(conf_str, (int, float)):
+        return float(conf_str)
+    return conf_map.get(str(conf_str).lower(), 0.5)
 
 
 # =============================================================================
@@ -395,125 +349,115 @@ def extract_one(key_def: dict, index: DocumentIndex,
 
 def run_pipeline(ocr_path: Path, keys_path: Path,
                  out_path: Path, backend: str,
-                 model: str, use_cache: bool):
+                 doc_type: str = "loan",
+                 role: str = "banking",
+                 max_workers: int = 6,
+                 worker_delay: float = 0.3):
 
-    timer = StepTimer(f"Financial Extraction Pipeline — {ocr_path.name}")
+    timer = StepTimer(f"DocAI Extraction Pipeline — {ocr_path.name}")
 
     # ── Load inputs ───────────────────────────────────────────────────────────
     timer.start("Loading inputs")
-    try:
-        ocr_text, keys = load_inputs(ocr_path, keys_path)
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
-        print(f"\n{e}\n")
-        sys.exit(1)
-    timer.end(f"{len(ocr_text):,} chars  |  {len(keys)} keys")
+    ocr_text, keys = load_inputs(ocr_path, keys_path)
+    timer.end(f"{len(ocr_text):,} chars | {len(keys)} keys | doc_type={doc_type}")
 
-    # ── LLM clients (one per agent, each with optimal model) ─────────────────
+    # ── LLM clients ───────────────────────────────────────────────────────────
     timer.start("Initialising LLM clients", f"backend={backend}")
-    try:
-        model_summary(backend)
-        clients = build_agent_clients(backend=backend)
-    except RuntimeError as e:
-        print(f"\n{RED}✗ LLM Client Error:{RESET}\n{e}\n")
-        sys.exit(1)
-    timer.end("4 clients ready")
+    model_summary(backend)
+    clients = build_agent_clients(backend=backend)
+    timer.end("All clients ready")
 
-    # ── Build / load embedding index ──────────────────────────────────────────
-    cache_path = out_path.parent / f"{ocr_path.stem}_index.pkl"
-    index      = DocumentIndex()
+    # ── Phase 1: Document Map ─────────────────────────────────────────────────
+    timer.start("Phase 1 — Document Map")
+    print(f"\n{BOLD}{'═'*65}{RESET}")
+    print(f"  {BOLD}PHASE 1: DOCUMENT MAP{RESET}")
+    print(f"{'─'*65}")
+    doc_map = doc_map_agent.build_document_map(ocr_text, clients["doc_map"])
+    timer.end(f"{len(doc_map.get('sections', []))} sections identified")
 
-    if use_cache and cache_path.exists():
-        timer.start("Loading cached index")
-        try:
-            index.load(str(cache_path))
-            timer.end()
-        except Exception as e:
-            print(f"{YELLOW}⚠ Failed to load cache, rebuilding:{RESET} {e}")
-            timer.start("Building embedding index")
-            index.build(ocr_text, timer=timer)
-            index.save(str(cache_path))
-            timer.end(f"Cached → {cache_path}")
-    else:
-        timer.start("Building embedding index")
-        index.build(ocr_text, timer=timer)
-        index.save(str(cache_path))
-        timer.end(f"Cached → {cache_path}")
+    # ── Phase 2: Extract all keys in parallel ─────────────────────────────────
+    timer.start("Phase 2 — Parallel key extraction")
+    print(f"\n{BOLD}{'═'*65}{RESET}")
+    print(f"  {BOLD}PHASE 2: EXTRACTING {len(keys)} KEYS ({max_workers} workers){RESET}")
+    print(f"{'─'*65}")
 
-    section("Index Summary")
-    print(f"    Table snippets   : {len(index.table_snippets)}")
-    print(f"    Definition snippets : {len(index.def_snippets)}")
-    if index.table_vectors is not None:
-        print(f"    Embedding dims   : {index.table_vectors.shape[1]}")
-
-    # ── Extract each key ──────────────────────────────────────────────────────
-    results         = []
+    results_map     = {}
     total_llm_calls = 0
-    skipped_llm     = 0
+    import threading
+    lock            = threading.Lock()
+    processed       = 0
 
-    print(f"\n{'═'*65}")
-    print(f"  {BOLD}EXTRACTING {len(keys)} KEYS{RESET}")
-    print(f"{'═'*65}")
-
-    for i, key_def in enumerate(keys):
-        print(f"\n{'─'*65}")
-        print(f"  {BOLD}KEY {i+1}/{len(keys)}:{RESET} {key_def['keyName']}")
-        print(f"{'─'*65}")
-
+    def process_key(args):
+        nonlocal processed
+        i, key_def, delay = args
+        if delay > 0:
+            time.sleep(delay)
         try:
-            timer.start(f"Key {i+1}: {key_def['keyName'][:40]}")
-            result = extract_one(key_def, index, ocr_text, clients)
-            timer.end(f"value={result.get('value')!r}  score={result.get('score')}")
-
-            results.append(result)
-            total_llm_calls += result["_debug"]["llm_calls"]
-            if result["_debug"]["llm_calls"] == 0:
-                skipped_llm += 1
+            result = extract_one(key_def, doc_map, ocr_text, clients, doc_type)
         except Exception as e:
-            print(f"  {RED}✗ Error extracting key {key_def['keyName']}:{RESET} {e}")
-            # Still add result but with error flag
-            results.append({
-                "keyName": key_def["keyName"],
-                "value": None,
-                "score": 0.0,
-                "reason": f"Error: {str(e)[:100]}",
-                "_debug": {"error": str(e)}
-            })
+            import traceback
+            print(f"  {RED}✗ Error on key {key_def.get('keyName')}: {e}{RESET}")
+            result = {
+                "keyName":  key_def.get("keyName", f"key_{i}"),
+                "value":    None,
+                "score":    0.0,
+                "reason":   f"Error: {str(e)[:100]}",
+                "description": "",
+                "rule_context": None,
+                "found_in": "error",
+                "_debug":   {"error": str(e), "traceback": traceback.format_exc()},
+            }
+        with lock:
+            processed += 1
+            print(f"  {DIM}[{processed}/{len(keys)}] {key_def['keyName'][:45]}{RESET}")
+        return i, result
+
+    tasks = [
+        (i, kd, (i % max_workers) * worker_delay)
+        for i, kd in enumerate(keys)
+    ]
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(process_key, t): t[0] for t in tasks}
+        for future in as_completed(futures):
+            i, result = future.result()
+            results_map[i] = result
+            total_llm_calls += result.get("_debug", {}).get("llm_calls", 0)
+
+    results = [results_map[i] for i in range(len(keys))]
+    timer.end(f"{total_llm_calls} total LLM calls")
 
     # ── Save results ──────────────────────────────────────────────────────────
     timer.start("Saving results")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-
     latest = out_path.parent / "results_latest.json"
     timed  = out_path.parent / f"results_{timestamp}.json"
 
-    clean  = [{k: v for k, v in r.items() if k != "_debug"} for r in results]
+    clean = [{k: v for k, v in r.items() if k != "_debug"} for r in results]
     latest.write_text(json.dumps(clean,   indent=2, ensure_ascii=False))
     timed.write_text( json.dumps(results, indent=2, ensure_ascii=False))
     timer.end(f"→ {latest}")
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    print(f"\n{'═'*65}")
+    print(f"\n{BOLD}{'═'*65}{RESET}")
     print(f"  {BOLD}RESULTS SUMMARY{RESET}")
     print(f"{'─'*65}")
-
-    high   = sum(1 for r in results if (r.get("score") or 0) >= CONFIG.SCORE_THRESHOLD_HIGH)
-    medium = sum(1 for r in results if CONFIG.SCORE_THRESHOLD_MEDIUM <= (r.get("score") or 0) < CONFIG.SCORE_THRESHOLD_HIGH)
-    low    = sum(1 for r in results if (r.get("score") or 0) < CONFIG.SCORE_THRESHOLD_MEDIUM)
-
+    high   = sum(1 for r in results if (r.get("score") or 0) >= SCORE_HIGH)
+    medium = sum(1 for r in results if SCORE_MEDIUM <= (r.get("score") or 0) < SCORE_HIGH)
+    low    = sum(1 for r in results if (r.get("score") or 0) < SCORE_MEDIUM)
     for r in results:
         score = r.get("score") or 0
         result_row(r["keyName"], r["value"], score,
-                   extra=f"fmt={r.get('expected_format','?')}")
-
-    print(f"\n  {GREEN}High  (≥{CONFIG.SCORE_THRESHOLD_HIGH}){RESET}  : {high}/{len(results)}")
-    print(f"  {YELLOW}Medium ({CONFIG.SCORE_THRESHOLD_MEDIUM}-{CONFIG.SCORE_THRESHOLD_HIGH}){RESET}: {medium}/{len(results)}")
-    print(f"  {RED}Low   (<{CONFIG.SCORE_THRESHOLD_MEDIUM}){RESET}  : {low}/{len(results)}")
-    print(f"\n  Total LLM calls  : {total_llm_calls}  "
+                   extra=f"fmt={r.get('expected_format','?')} found_in={r.get('found_in','?')}")
+    print(f"\n  {GREEN}High  (≥{SCORE_HIGH}):{RESET} {high}/{len(results)}")
+    print(f"  {YELLOW}Med   (≥{SCORE_MEDIUM}):{RESET} {medium}/{len(results)}")
+    print(f"  {RED}Low   (<{SCORE_MEDIUM}):{RESET} {low}/{len(results)}")
+    print(f"\n  Total LLM calls: {total_llm_calls} "
           f"(avg {total_llm_calls/max(len(keys),1):.1f}/key)")
-    print(f"  Keys no LLM      : {skipped_llm}/{len(keys)}")
-
     timer.summary()
+
+    return results
 
 
 # =============================================================================
@@ -521,44 +465,49 @@ def run_pipeline(ocr_path: Path, keys_path: Path,
 # =============================================================================
 
 def main():
-    # Compute dynamic default path
-    DEFAULT_OUTPUT_PATH = CONFIG.OUTPUT_DIR / "results.json"
-    
     parser = argparse.ArgumentParser(
-        description="Financial extraction pipeline — embeddings + 4 agents",
+        description="DocAI — Multi-Agent Document Extraction Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Groq (recommended, free):
+  # Local (private/financial data — fully offline):
+  python run_pipeline.py --ocr loan.txt --keys keys.json --backend ollama
+
+  # Cloud (Groq, free):
   export GROQ_API_KEY='gsk_...'
-  python run_pipeline.py --ocr full_report.txt --keys keys.json
+  python run_pipeline.py --ocr loan.txt --keys keys.json
 
-  # Local phi3.5 via Ollama:
-  python run_pipeline.py --ocr full_report.txt --keys keys.json --backend ollama
-
-  # Reuse cached index (faster on second run):
-  python run_pipeline.py --ocr full_report.txt --keys keys.json --use-cache
+  # With role and doc type:
+  python run_pipeline.py --ocr isda.txt --keys isda_keys.json \\
+    --doc-type isda --role banking --backend ollama
         """
     )
-    parser.add_argument("--ocr",       required=True, help="Path to OCR text file")
-    parser.add_argument("--keys",      required=True, help="Path to keys JSON file")
-    parser.add_argument("--out",       default=str(DEFAULT_OUTPUT_PATH),
-                        help=f"Output path (default: {DEFAULT_OUTPUT_PATH})")
-    parser.add_argument("--backend",   default="groq", choices=["groq", "ollama"],
-                        help="LLM backend (default: groq)")
-    parser.add_argument("--model",     default=None,
-                        help="Override model for all agents")
-    parser.add_argument("--use-cache", action="store_true",
-                        help="Load pre-built index from disk")
+    parser.add_argument("--ocr",        required=True, help="Path to OCR text file")
+    parser.add_argument("--keys",       required=True, help="Path to keys JSON file")
+    parser.add_argument("--out",        default=str(OUTPUT_DIR / "results.json"))
+    parser.add_argument("--backend",    default="groq", choices=["groq", "ollama"])
+    parser.add_argument("--doc-type",   default="loan",
+                        choices=["loan", "isda", "invoice", "compliance_report"],
+                        help="Document type (determines prompt variant)")
+    parser.add_argument("--role",       default="banking",
+                        choices=["banking", "insurance", "compliance"],
+                        help="User role")
+    parser.add_argument("--workers",    type=int, default=None,
+                        help="Parallel workers (default: 1 for ollama, 6 for groq)")
     args = parser.parse_args()
 
+    # Ollama runs 1 inference at a time — no benefit from >1 worker
+    if args.workers is None:
+        args.workers = 1 if args.backend == "ollama" else 6
+
     run_pipeline(
-        ocr_path  = Path(args.ocr),
-        keys_path = Path(args.keys),
-        out_path  = Path(args.out),
-        backend   = args.backend,
-        model     = args.model,
-        use_cache = args.use_cache,
+        ocr_path    = Path(args.ocr),
+        keys_path   = Path(args.keys),
+        out_path    = Path(args.out),
+        backend     = args.backend,
+        doc_type    = args.doc_type,
+        role        = args.role,
+        max_workers = args.workers,
     )
 
 
