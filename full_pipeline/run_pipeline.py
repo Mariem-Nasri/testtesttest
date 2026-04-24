@@ -1,30 +1,35 @@
 """
-run_pipeline.py — New 3-Phase Multi-Agent Pipeline
-═══════════════════════════════════════════════════
+run_pipeline.py — 3-Phase Multi-Agent Pipeline with integrated GLM-OCR
+═══════════════════════════════════════════════════════════════════════
 Architecture:
 
-  Phase 1: Document Map (1 LLM call, shared across all keys)
+  [OCR Phase — optional]   PDF → GLM-OCR (Ollama VLM) or Tesseract → text
+  Phase 1: Document Map   (1 LLM call, shared across all keys)
            → Identifies WHERE each topic is + TABLE or PARAGRAPH
-
   Phase 2: Per-key parallel extraction (6 workers)
            type="table"  → Tables Agent → Rules Sub-Agent
            type="paragraph" → Doc-Type Sub-Agent (Terms Agent if needed)
            Always parallel: Description Agent
-
   Phase 3: Validator (format check first, LLM only when needed)
 
 Usage:
-  # Local (financial data security, fully offline):
-  OLLAMA_HOST=http://127.0.0.1:11434 python run_pipeline.py \\
-    --ocr full_report.txt --keys keys.json --backend ollama
+  # PDF → OCR → extract (fully integrated):
+  python run_pipeline.py --pdf document.pdf --keys keys.json --backend ollama
+
+  # Pre-OCR'd text → extract:
+  python run_pipeline.py --ocr full_report.txt --keys keys.json --backend ollama
 
   # Cloud (Groq, free tier):
   export GROQ_API_KEY='gsk_...'
-  python run_pipeline.py --ocr full_report.txt --keys keys.json
+  python run_pipeline.py --pdf document.pdf --keys keys.json
 
   # With role/doc-type (multi-role mode):
-  python run_pipeline.py --ocr full_report.txt --keys keys.json \\
+  python run_pipeline.py --pdf document.pdf --keys keys.json \\
     --doc-type loan --role banking
+
+  # Tesseract OCR (fast, CPU):
+  python run_pipeline.py --pdf document.pdf --keys keys.json \\
+    --ocr-engine tesseract --ocr-workers 4
 """
 
 import sys
@@ -38,6 +43,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
+
+# ── GLM-OCR runner (lives one level up) ─────────────────────────────────────
+_RUNNER_DIR = os.path.dirname(ROOT)
+if _RUNNER_DIR not in sys.path:
+    sys.path.insert(0, _RUNNER_DIR)
 
 from core.llm_client import build_agent_clients, model_summary
 from utils.format_detector import detect_format
@@ -64,6 +74,74 @@ RESET  = "\033[0m"
 SCORE_HIGH   = 0.8
 SCORE_MEDIUM = 0.6
 OUTPUT_DIR   = Path(__file__).parent / "outputs"
+
+
+# =============================================================================
+# OCR PHASE  (PDF → clean text via GLM-OCR or Tesseract)
+# =============================================================================
+
+def run_ocr_on_pdf(
+    pdf_path: Path,
+    ocr_engine: str = "glm",
+    ocr_workers: int | None = None,
+    dpi: int | None = None,
+    use_cache: bool = True,
+    out_dir: Path | None = None,
+) -> tuple[Path, str]:
+    """
+    Run GLM-OCR (or Tesseract) on *pdf_path* and return
+    ``(ocr_txt_path, ocr_text)`` ready to feed into the pipeline.
+
+    The result is written next to the PDF (or into *out_dir*) as
+    ``<stem>.<engine>.txt``.  Subsequent runs with the same PDF reuse
+    the cached per-page results so OCR is not repeated unnecessarily.
+    """
+    try:
+        from glmocr_runner import process_pdf, ollama_running, model_available
+    except ImportError as e:
+        raise ImportError(
+            "glmocr_runner.py not found. Make sure it lives in the project root "
+            f"({_RUNNER_DIR}).\nOriginal error: {e}"
+        )
+
+    out_dir = out_dir or pdf_path.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ocr_txt_path = out_dir / f"{pdf_path.stem}.{ocr_engine}.txt"
+
+    # Engine defaults
+    _workers = ocr_workers if ocr_workers is not None else (4 if ocr_engine == "tesseract" else 2)
+    _dpi     = dpi         if dpi         is not None else (150 if ocr_engine == "tesseract" else 120)
+
+    if ocr_engine == "glm":
+        if not ollama_running():
+            raise RuntimeError(
+                "Ollama is not running. Start it with:  ollama serve\n"
+                "Then pull the model:  ollama pull glm-ocr"
+            )
+        if not model_available("glm-ocr"):
+            raise RuntimeError(
+                "Model 'glm-ocr' not found in Ollama.\n"
+                "Pull it with:  ollama pull glm-ocr"
+            )
+
+    print(f"\n{BOLD}{'═'*65}{RESET}")
+    print(f"  {BOLD}OCR PHASE  [{ocr_engine.upper()}]  {pdf_path.name}{RESET}")
+    print(f"{'─'*65}")
+    print(f"  DPI={_dpi}  workers={_workers}  cache={'on' if use_cache else 'off'}")
+
+    text = process_pdf(
+        pdf_path     = str(pdf_path),
+        out_path     = ocr_txt_path,
+        engine       = ocr_engine,
+        dpi          = _dpi,
+        workers      = _workers,
+        use_cache    = use_cache,
+        batch_size   = 4,
+        jpeg_quality = 85,
+    )
+
+    print(f"  {GREEN}✓ OCR complete → {ocr_txt_path}  ({len(text):,} chars){RESET}")
+    return ocr_txt_path, text
 
 
 # =============================================================================
@@ -352,9 +430,28 @@ def run_pipeline(ocr_path: Path, keys_path: Path,
                  doc_type: str = "loan",
                  role: str = "banking",
                  max_workers: int = 6,
-                 worker_delay: float = 0.3):
+                 worker_delay: float = 0.3,
+                 # OCR integration
+                 pdf_path: Path | None = None,
+                 ocr_engine: str = "glm",
+                 ocr_workers: int | None = None,
+                 ocr_dpi: int | None = None,
+                 ocr_cache: bool = True):
 
-    timer = StepTimer(f"DocAI Extraction Pipeline — {ocr_path.name}")
+    timer = StepTimer(f"DocAI Extraction Pipeline — {(pdf_path or ocr_path).name}")
+
+    # ── OCR Phase (optional) ──────────────────────────────────────────────────
+    if pdf_path is not None:
+        timer.start("OCR Phase")
+        ocr_path, ocr_text_direct = run_ocr_on_pdf(
+            pdf_path   = pdf_path,
+            ocr_engine = ocr_engine,
+            ocr_workers= ocr_workers,
+            dpi        = ocr_dpi,
+            use_cache  = ocr_cache,
+            out_dir    = out_path.parent,
+        )
+        timer.end(f"{len(ocr_text_direct):,} chars")
 
     # ── Load inputs ───────────────────────────────────────────────────────────
     timer.start("Loading inputs")
@@ -466,48 +563,88 @@ def run_pipeline(ocr_path: Path, keys_path: Path,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DocAI — Multi-Agent Document Extraction Pipeline",
+        description="DocAI — Multi-Agent Document Extraction Pipeline (with integrated GLM-OCR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Local (private/financial data — fully offline):
+  # PDF → OCR → extract (one command, fully integrated):
+  python run_pipeline.py --pdf loan.pdf --keys keys.json --backend ollama
+
+  # Pre-OCR'd text → extract:
   python run_pipeline.py --ocr loan.txt --keys keys.json --backend ollama
 
-  # Cloud (Groq, free):
+  # Cloud (Groq) with PDF input:
   export GROQ_API_KEY='gsk_...'
-  python run_pipeline.py --ocr loan.txt --keys keys.json
+  python run_pipeline.py --pdf loan.pdf --keys keys.json
+
+  # Tesseract OCR (fast CPU) + Groq extraction:
+  python run_pipeline.py --pdf scan.pdf --keys keys.json \\
+    --ocr-engine tesseract --ocr-workers 4
 
   # With role and doc type:
-  python run_pipeline.py --ocr isda.txt --keys isda_keys.json \\
+  python run_pipeline.py --pdf isda.pdf --keys isda_keys.json \\
     --doc-type isda --role banking --backend ollama
         """
     )
-    parser.add_argument("--ocr",        required=True, help="Path to OCR text file")
+
+    # ── Input source (mutually exclusive: PDF or pre-OCR'd text) ─────────────
+    src = parser.add_mutually_exclusive_group(required=True)
+    src.add_argument("--pdf", default=None,
+                     help="Path to PDF — runs GLM-OCR then extracts keys")
+    src.add_argument("--ocr", default=None,
+                     help="Path to already-OCR'd text file — skips OCR step")
+
     parser.add_argument("--keys",       required=True, help="Path to keys JSON file")
     parser.add_argument("--out",        default=str(OUTPUT_DIR / "results.json"))
-    parser.add_argument("--backend",    default="groq", choices=["groq", "ollama"])
+    parser.add_argument("--backend",    default="groq", choices=["groq", "ollama"],
+                        help="LLM backend for extraction agents (default: groq)")
     parser.add_argument("--doc-type",   default="loan",
                         choices=["loan", "isda", "invoice", "compliance_report"],
-                        help="Document type (determines prompt variant)")
+                        help="Document type — determines prompt variant (default: loan)")
     parser.add_argument("--role",       default="banking",
                         choices=["banking", "insurance", "compliance"],
-                        help="User role")
+                        help="User role (default: banking)")
     parser.add_argument("--workers",    type=int, default=None,
-                        help="Parallel workers (default: 1 for ollama, 6 for groq)")
+                        help="Parallel extraction workers (default: 1 for ollama, 6 for groq)")
+
+    # ── OCR options (only used with --pdf) ────────────────────────────────────
+    ocr_grp = parser.add_argument_group("OCR options (only with --pdf)")
+    ocr_grp.add_argument("--ocr-engine",   default="glm", choices=["glm", "tesseract"],
+                         help="OCR engine: 'glm' (quality, GPU) or 'tesseract' (fast, CPU). Default: glm")
+    ocr_grp.add_argument("--ocr-workers",  type=int, default=None,
+                         help="OCR concurrent workers (default: 2 for glm, 4 for tesseract)")
+    ocr_grp.add_argument("--ocr-dpi",      type=int, default=None,
+                         help="PDF render DPI for OCR (default: 120 for glm, 150 for tesseract)")
+    ocr_grp.add_argument("--no-ocr-cache", action="store_true",
+                         help="Disable per-page OCR cache (re-runs OCR on every page)")
+
     args = parser.parse_args()
 
-    # Ollama runs 1 inference at a time — no benefit from >1 worker
+    # Validate --pdf with ocr engine options
+    if args.ocr and any([args.ocr_engine != "glm", args.ocr_workers, args.ocr_dpi, args.no_ocr_cache]):
+        print(f"{YELLOW}[warn] --ocr-engine / --ocr-workers / --ocr-dpi / --no-ocr-cache "
+              f"are ignored when --ocr is used instead of --pdf{RESET}")
+
+    # Extraction worker default depends on backend
     if args.workers is None:
         args.workers = 1 if args.backend == "ollama" else 6
 
+    pdf_path = Path(args.pdf) if args.pdf else None
+    ocr_path = Path(args.ocr) if args.ocr else Path(args.out).parent / "_ocr_placeholder.txt"
+
     run_pipeline(
-        ocr_path    = Path(args.ocr),
+        ocr_path    = ocr_path,
         keys_path   = Path(args.keys),
         out_path    = Path(args.out),
         backend     = args.backend,
         doc_type    = args.doc_type,
         role        = args.role,
         max_workers = args.workers,
+        pdf_path    = pdf_path,
+        ocr_engine  = args.ocr_engine,
+        ocr_workers = args.ocr_workers,
+        ocr_dpi     = args.ocr_dpi,
+        ocr_cache   = not args.no_ocr_cache,
     )
 
 

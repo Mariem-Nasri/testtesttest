@@ -26,13 +26,21 @@ const STEPS      = ['Document PDF', 'Champs à extraire', 'Lancer']
 export default function Upload() {
   const navigate = useNavigate()
 
-  const [step,       setStep]       = useState(0)
-  const [pdfFile,    setPdfFile]    = useState(null)
-  const [jsonFile,   setJsonFile]   = useState(null)
-  const [jsonMode,   setJsonMode]   = useState('upload')  // 'upload' | 'manual'
-  const [fields,     setFields]     = useState([])
-  const [docType,    setDocType]    = useState('Accord de Prêt')
-  const [submitting, setSubmitting] = useState(false)
+  const [step,        setStep]       = useState(0)
+  const [pdfFile,     setPdfFile]    = useState(null)
+  const [jsonFile,    setJsonFile]   = useState(null)
+  const [parsedKeys,  setParsedKeys] = useState([])   // parsed content of uploaded JSON
+  const [jsonMode,    setJsonMode]   = useState('upload')  // 'upload' | 'manual'
+  const [fields,      setFields]     = useState([])
+  const [docType,     setDocType]    = useState('Accord de Prêt')
+  const [submitting,  setSubmitting] = useState(false)
+
+  const DOC_SUBTYPE_MAP = {
+    'Accord de Prêt':   'loan',
+    'Rapport Financier': 'compliance_report',
+    'Contrat':           'isda',
+    'Autre':             'loan',
+  }
 
   // ── PDF dropzone ──────────────────────────────────────────────────────────
   const onDropPdf = useCallback((accepted, rejected) => {
@@ -58,6 +66,7 @@ export default function Upload() {
         if (!Array.isArray(parsed)) throw new Error('Le JSON doit être un tableau []')
         if (parsed.length > 0 && !parsed[0]?.keyName) throw new Error('Chaque entrée doit avoir un champ "keyName"')
         setJsonFile(file)
+        setParsedKeys(parsed)
         toast.success(`${parsed.length} champ(s) chargé(s)`)
       } catch (err) { toast.error(`JSON invalide : ${err.message}`) }
     }
@@ -80,23 +89,15 @@ export default function Upload() {
   async function onSubmit() {
     setSubmitting(true)
     try {
+      const userKeys = jsonMode === 'upload'
+        ? parsedKeys
+        : fields.map(({ keyName, keyNameDescription }) => ({ keyName, keyNameDescription: keyNameDescription || '' }))
+
       const form = new FormData()
       form.append('pdf_file',        pdfFile)
-      form.append('document_type',   docType)
-      form.append('pipeline_config', '{}')   // pipeline config handled by backend
-
-      if (jsonMode === 'upload' && jsonFile) {
-        form.append('json_file', jsonFile)
-      } else {
-        const blob = new Blob([JSON.stringify(fields.map(({ keyName, keyNameDescription, page, value, score }) => ({
-          keyName,
-          keyNameDescription,
-          page,
-          value,
-          score,
-        })))], { type: 'application/json' })
-        form.append('json_file', blob, 'fields.json')
-      }
+      form.append('doc_subtype',     DOC_SUBTYPE_MAP[docType] || 'loan')
+      form.append('extra_keys',      JSON.stringify(userKeys))
+      form.append('pipeline_config', '{}')
 
       const { id } = await uploadDocument(form)
       toast.success('Document uploadé !')

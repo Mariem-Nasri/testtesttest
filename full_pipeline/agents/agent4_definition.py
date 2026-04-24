@@ -85,34 +85,82 @@ def _build_prompt(key_name: str, top_def_snippets: list[dict]) -> str:
         f"  [{i+1}] score={s['score']:.3f}  {s['snippet']}"
         for i, s in enumerate(top_def_snippets)
     )
-    return f"""{FEW_SHOT_EXAMPLE}
-─────────────────────────────────────────────────
-NOW extract definition for this key:
+    return f"""You are a Definition Extraction Agent operating within complex legal and financial documents.
 
-TOP MATCHING DEFINITION SNIPPETS:
+Your task is to identify and extract the **most authoritative definition of a term**, prioritizing **verbatim fidelity to the document**.
+
+A definition may not appear near the key term. It may exist:
+
+* in a Definitions section,
+* on another page,
+* embedded in clauses using phrases like "means", "shall mean", or "is defined as",
+* or implied through how the term is used in covenants, ratios, or constraints.
+
+You must search across the provided snippets and determine the most reliable source.
+
+────────────────────────────────────────────
+
+KEY NAME:
+"{key_name}"
+
+CANDIDATE SNIPPETS:
 {snippet_block}
 
-KEY NAME: "{key_name}"
+────────────────────────────────────────────
 
-Instructions:
-1. Find the snippet that best defines or describes this key.
-2. Extract the formal definition in plain language (max 2 sentences).
-3. Identify the expected value format:
-   - "ratio"      → value looks like "4.50 to 1.00"
-   - "percentage" → value looks like "2.25%"
-   - "date"       → value looks like "2015-11-02"
-   - "currency"   → value looks like "EUR 8,582,000"
-   - "number"     → value looks like "145"
-   - "text"       → free text value
-4. If any snippet contains an explicit numeric threshold (e.g. "4.50 to 1.00"),
-   include it as value_hint.
-5. If the definition mentions a specific table, include it as related_table.
+EXTRACTION PRINCIPLES:
+
+1. **Fidelity First (Default Behavior)**
+
+   * Extract the definition **exactly as written** in the document
+   * Do NOT paraphrase, simplify, or reinterpret if the definition is clear
+   * Preserve original wording, numeric expressions, and legal phrasing
+
+2. **Controlled Reconstruction (Only if Necessary)**
+
+   * If no single snippet contains a clear, complete definition:
+
+     * You may reconstruct the definition from multiple snippets
+   * In this case:
+
+     * Stay as close as possible to the original wording
+     * Do NOT introduce new terms or interpretations
+     * Do NOT generalize beyond the text
+   * Reconstruction is a fallback, not the default
+
+3. **Authority Selection**
+
+   * Prefer explicit definitions ("means", "shall mean", etc.)
+   * If absent, use the snippet that most directly constrains or operationalizes the term
+
+4. **Span Integrity**
+
+   * Extract full sentences or clauses
+   * Do not truncate mid-thought
+   * Do not merge unrelated fragments
+
+5. **Value Hint Extraction**
+
+   * If a numeric threshold appears, extract it exactly as written
+
+6. **Strict Non-Hallucination**
+
+   * If no valid definition can be found, return:
+     "definition_text": ""
+
+7. **Source Attribution**
+
+   * Return the page number of the primary source
+   * If reconstructed, use the page of the most defining snippet
+
+────────────────────────────────────────────
 
 Return ONLY JSON, no explanation:
 {{
-  "definition_text": "<plain language definition, max 2 sentences>",
+  "extraction_mode": "verbatim" | "reconstructed",
+  "definition_text": "",
   "expected_format": "ratio/percentage/date/currency/number/text",
-  "value_hint": "<numeric threshold if found, else null>",
+  "value_hint": "<exact value if present, else null>",
   "related_table": "<table name if mentioned, else null>",
   "source_page": <page number or null>
 }}"""
@@ -172,6 +220,7 @@ def run(key_name: str, top_definitions: list[dict],
 
     if not isinstance(result, dict):
         result = {
+            "extraction_mode": "verbatim",
             "definition_text": top_definitions[0].get("definition", ""),
             "expected_format": fmt,
             "value_hint":      top_definitions[0].get("value_hint"),
@@ -179,17 +228,17 @@ def run(key_name: str, top_definitions: list[dict],
             "source_page":     top_definitions[0].get("page"),
         }
 
-    # ── FIX: guard against None values returned by LLM for any field ─────────
-    # result.get("key", "") only uses "" when the key is ABSENT.
-    # If the LLM explicitly sets a key to null, result.get() returns None.
-    # We must coerce None → sensible defaults here, not in display.py alone.
+    # Guard against None values returned by LLM for any field
+    if result.get("extraction_mode") is None:
+        result["extraction_mode"] = "verbatim"
     if result.get("expected_format") is None:
-        result["expected_format"] = fmt          # use key-name inference
+        result["expected_format"] = fmt
     if result.get("definition_text") is None:
         result["definition_text"] = ""
     if result.get("source_page") is not None:
         result["source_page"] = str(result["source_page"])
 
+    step_output("Extraction mode:", result.get("extraction_mode", ""))
     step_output("Definition:",      result.get("definition_text", "")[:80])
     step_output("Expected format:", result.get("expected_format", ""))
     step_output("Value hint:",      str(result.get("value_hint")))

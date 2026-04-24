@@ -3,151 +3,190 @@ agents/agent_description.py
 ─────────────────────────────
 Description Agent — always runs in parallel with extraction agents
 
-Searches the definitions/terms section of the document for the
-formal definition of the key term.
+Searches the full document for the most authoritative definition of a term,
+prioritizing verbatim fidelity. Extracts candidate snippets containing the
+key term (or near it) from the full OCR text, then uses an LLM to pick and
+extract the best definition.
 
 Rules:
-  ✓ Found in document → returns the definition text
+  ✓ Found in document → returns the definition text (verbatim or reconstructed)
   ✗ Not found         → returns "" (empty string)
   ✗ NEVER generates a synthetic definition
-
-Uses llama-4-scout (Groq) or qwen2.5:7b (Ollama) — fast model,
-simple task.
 """
 
 import re
-from pathlib import Path
 
 
-DESCRIPTION_PROMPT = """You are a legal document analyst searching for a term's definition.
+# ── Snippet extraction ────────────────────────────────────────────────────────
 
-TERM TO FIND: "{key_name}"
-
-DEFINITIONS / TERMS SECTION OF DOCUMENT:
-{definitions_text}
-
-INSTRUCTIONS:
-1. Search the text above for a formal definition of "{key_name}" or any of its common aliases.
-2. A definition typically looks like:
-   - "{key_name}" means ...
-   - "{key_name}" shall mean ...
-   - "{key_name}" is defined as ...
-   - Definition of "{key_name}": ...
-3. Extract the COMPLETE definition sentence(s) — do not truncate.
-4. If the exact term is not found, check for closely related terms or abbreviations.
-5. If NO definition exists in this text: return empty string for definition_text.
-   DO NOT create, infer, or generate a definition. Only return what is literally in the text.
-
-Return ONLY JSON, no explanation:
-{{
-  "definition_text": "<exact definition from document, or empty string if not found>",
-  "source_page": <page number or null>,
-  "alias_used": "<the exact phrasing found, if different from key name, or null>"
-}}"""
-
-
-def _extract_definition_text(ocr_text: str, definitions_pages: list[int]) -> str:
+def _extract_candidate_snippets(ocr_text: str, key_name: str,
+                                 definitions_pages: list[int],
+                                 max_snippets: int = 8) -> list[dict]:
     """
-    Extract text from the definitions pages.
-    Falls back to heuristic search if pages list is empty.
+    Extract candidate text snippets that are likely to contain a definition
+    of key_name. Searches definitions pages first, then the full document.
+    Each snippet is a sentence or short paragraph with a page tag.
     """
-    # Split into pages
     page_pattern = re.compile(r'={20,}\s*\nPAGE\s+(\d+)\s*\n={20,}', re.IGNORECASE)
     splits = list(page_pattern.finditer(ocr_text))
 
-    if not splits:
-        return ocr_text[:4000]
-
     pages_dict = {}
-    for i, match in enumerate(splits):
-        pnum  = int(match.group(1))
-        start = match.end()
-        end   = splits[i + 1].start() if i + 1 < len(splits) else len(ocr_text)
-        pages_dict[pnum] = ocr_text[start:end].strip()
+    if splits:
+        for i, match in enumerate(splits):
+            pnum  = int(match.group(1))
+            start = match.end()
+            end   = splits[i + 1].start() if i + 1 < len(splits) else len(ocr_text)
+            pages_dict[pnum] = (ocr_text[start:end].strip(), match.start())
+    else:
+        pages_dict[1] = (ocr_text, 0)
 
-    if definitions_pages:
-        parts = []
-        for p in definitions_pages:
-            if p in pages_dict:
-                parts.append(f"[Page {p}]\n{pages_dict[p]}")
-        if parts:
-            return "\n\n".join(parts)
+    # Keywords that signal a definition (formal or operational)
+    def_signals = re.compile(
+        r'means\b|shall mean|is defined as|refers to|"definitions"|'
+        r'herein defined|defined term|as used herein|'
+        r'\bis\b|\bequals\b|\bshall be\b|\bwill be\b|\bcalculated as\b|'
+        r'\bpayable at\b|\bpayable in\b|\bamounts to\b|\brepresents\b',
+        re.IGNORECASE
+    )
 
-    # Heuristic fallback: search all pages for "means" / "shall mean" density
-    best_page  = None
-    best_count = 0
-    for pnum, text in pages_dict.items():
-        count = (text.lower().count(" means ") +
-                 text.lower().count("shall mean") +
-                 text.lower().count("is defined as") +
-                 text.lower().count('"definitions"'))
-        if count > best_count:
-            best_count = count
-            best_page  = pnum
+    # Build search terms from key_name (words ≥ 3 chars)
+    key_words = [w for w in re.split(r'\W+', key_name) if len(w) >= 3]
+    key_pattern = re.compile('|'.join(re.escape(w) for w in key_words), re.IGNORECASE)
 
-    if best_page and best_count > 0:
-        nearby = []
-        for p in range(max(1, best_page - 1), best_page + 3):
-            if p in pages_dict:
-                nearby.append(f"[Page {p}]\n{pages_dict[p]}")
-        return "\n\n".join(nearby)
+    snippets = []
 
-    # Last resort: first 4000 chars
-    return ocr_text[:4000]
+    def _add_snippets_from_text(text: str, page_num: int, priority: int):
+        sentences = re.split(r'(?<=[.!?])\s+|\n{2,}', text)
+        for sent in sentences:
+            sent = sent.strip()
+            if len(sent) < 20 or len(sent) > 600:
+                continue
+            if not key_pattern.search(sent):
+                continue
+            score = priority
+            if def_signals.search(sent):
+                score += 2
+            if re.search(re.escape(key_name), sent, re.IGNORECASE):
+                score += 1
+            snippets.append({"snippet": sent, "page": page_num, "score": score})
 
+    # Priority 1: definitions pages
+    for pnum in definitions_pages:
+        if pnum in pages_dict:
+            _add_snippets_from_text(pages_dict[pnum][0], pnum, priority=3)
+
+    # Priority 2: rest of document
+    for pnum, (text, _) in pages_dict.items():
+        if pnum not in definitions_pages:
+            _add_snippets_from_text(text, pnum, priority=1)
+
+    # Deduplicate and sort by score desc
+    seen = set()
+    unique = []
+    for s in sorted(snippets, key=lambda x: -x["score"]):
+        key = s["snippet"][:80]
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+
+    return unique[:max_snippets]
+
+
+# ── Prompt ────────────────────────────────────────────────────────────────────
+
+DESCRIPTION_PROMPT = """You are a Definition Extraction Agent for legal and financial documents.
+
+Your task: find the snippet below that best answers the question "What is {key_name}?" and extract it verbatim.
+
+KEY NAME: "{key_name}"
+
+CANDIDATE SNIPPETS:
+{snippet_block}
+
+────────────────────────────────────────────
+
+WHAT COUNTS AS A DEFINITION (be inclusive — no formal signal words required):
+
+Any snippet that tells you what the term IS, how it is calculated, what it equals,
+or what it obligates — regardless of phrasing. All of these are valid definitions:
+
+  ✓ "X means Y"                          (explicit)
+  ✓ "X shall mean Y"                     (explicit)
+  ✓ "The X is Y% of the Loan amount."    (operational — IS = definition)
+  ✓ "2.03. The X is one quarter of 1%."  (numbered clause — still a definition)
+  ✓ "X equals Y."                        (mathematical definition)
+  ✓ "X shall be calculated as Y."        (procedural definition)
+  ✓ "X will not exceed Y."               (constraint definition)
+  ✓ "X is payable at Y."                 (contractual definition)
+
+RULES:
+
+1. Extract the sentence **verbatim** — do not paraphrase or reword.
+2. Remove only leading article numbers like "2.03." if present — keep the rest intact.
+3. Prefer the snippet closest to a formal definition, but accept any operational description.
+4. If multiple snippets are relevant, use the most complete and direct one.
+5. If NO snippet meaningfully answers "What is {key_name}?", return empty string — do NOT hallucinate.
+
+Return ONLY JSON:
+{{
+  "extraction_mode": "verbatim",
+  "definition_text": "<exact sentence from document, or empty string>",
+  "source_page": <page number or null>
+}}"""
+
+
+# ── Agent entry point ─────────────────────────────────────────────────────────
 
 def run(key_name: str,
         ocr_text: str,
         definitions_pages: list[int],
         client) -> dict:
     """
-    Search the definitions section for the formal definition of key_name.
-
-    Args:
-        key_name          : term to define (e.g. "Leverage Ratio")
-        ocr_text          : full OCR text
-        definitions_pages : page numbers of the definitions section (from DocMap)
-        client            : LLMClient (agent_description)
+    Search the full document for the formal definition of key_name.
 
     Returns:
         {
             "definition_text": "<text from document or empty string>",
+            "extraction_mode": "verbatim" | "reconstructed",
             "source_page": <int or null>,
-            "alias_used": <str or null>
         }
     """
     print(f"  [Desc] Searching definition for '{key_name}'")
 
-    definitions_text = _extract_definition_text(ocr_text, definitions_pages)
+    snippets = _extract_candidate_snippets(ocr_text, key_name, definitions_pages)
 
-    if not definitions_text.strip():
-        return {
-            "definition_text": "",
-            "source_page":     None,
-            "alias_used":      None,
-        }
+    if not snippets:
+        print(f"  [Desc] No candidate snippets found")
+        return {"definition_text": "", "extraction_mode": "verbatim", "source_page": None}
+
+    snippet_block = "\n".join(
+        f"  [{i+1}] (page {s['page']}) {s['snippet']}"
+        for i, s in enumerate(snippets)
+    )
 
     prompt = DESCRIPTION_PROMPT.format(
-        key_name         = key_name,
-        definitions_text = definitions_text[:4500],
+        key_name     = key_name,
+        snippet_block = snippet_block,
     )
 
     try:
         result = client.chat_json(prompt, max_tokens=512)
     except Exception as e:
         print(f"  [Desc] LLM error: {e}")
-        return {"definition_text": "", "source_page": None, "alias_used": None}
+        return {"definition_text": "", "extraction_mode": "verbatim", "source_page": None}
 
     if not isinstance(result, dict):
-        return {"definition_text": "", "source_page": None, "alias_used": None}
+        return {"definition_text": "", "extraction_mode": "verbatim", "source_page": None}
 
-    # Enforce: never return None, always return "" if not found
-    definition_text = result.get("definition_text") or ""
+    definition_text  = result.get("definition_text") or ""
+    extraction_mode  = result.get("extraction_mode") or "verbatim"
+    source_page      = result.get("source_page")
+
     print(f"  [Desc] {'Found' if definition_text else 'Not found'}: "
-          f"{definition_text[:80]!r}")
+          f"{definition_text[:80]!r}  [{extraction_mode}]")
 
     return {
         "definition_text": definition_text,
-        "source_page":     result.get("source_page"),
-        "alias_used":      result.get("alias_used"),
+        "extraction_mode": extraction_mode,
+        "source_page":     source_page,
     }

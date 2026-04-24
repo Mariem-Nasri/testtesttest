@@ -30,11 +30,12 @@ from database import update_document
 
 # ── Project paths ─────────────────────────────────────────────────────────────
 PROJ_ROOT      = Path(__file__).parent.parent
-OCR_SCRIPTS    = PROJ_ROOT / "OCR_platform" / "scripts"
 OCR_OUTPUT_DIR = PROJ_ROOT / "OCR_platform" / "data" / "input" / "output"
 PIPELINE_ROOT  = PROJ_ROOT / "full_pipeline"
 
-for p in [str(OCR_SCRIPTS), str(PIPELINE_ROOT)]:
+OCR_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+for p in [str(PROJ_ROOT), str(PIPELINE_ROOT)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -44,25 +45,37 @@ WORKER_START_DELAY = 0.3   # seconds between worker launches (rate-limit protect
 
 _pipeline_fns = None
 
-_OCR_PYTHON = str(PROJ_ROOT / "OCR_platform" / "ocr_env" / "bin" / "python3")
-_OCR_SCRIPT = str(OCR_SCRIPTS / "pdf_pipeline.py")
 
+# ── GLM-OCR ───────────────────────────────────────────────────────────────────
 
-# ── OCR subprocess ─────────────────────────────────────────────────────────────
+def _run_glmocr(pdf_path: str, out_path: Path) -> str:
+    """Run GLM-OCR (Ollama VLM) on pdf_path, write result to out_path, return text."""
+    _ocrs_dir = str(PROJ_ROOT / "OCR_platform" / "ocrs")
+    if _ocrs_dir not in sys.path:
+        sys.path.insert(0, _ocrs_dir)
 
-def _run_ocr_subprocess(pdf_path: str):
-    """
-    Run YOLO+TATR+DocTr OCR pipeline in isolated subprocess.
-    The ocr_env virtualenv avoids import conflicts with FastAPI packages.
-    """
-    import subprocess
-    result = subprocess.run(
-        [_OCR_PYTHON, _OCR_SCRIPT, pdf_path],
-        capture_output=False,
-        text=True,
+    from glmocr_runner import process_pdf, ollama_running, model_available
+
+    if not ollama_running():
+        raise RuntimeError(
+            "Ollama is not running. Start it with: ollama serve\n"
+            "Then pull the model: ollama pull glm-ocr"
+        )
+    if not model_available("glm-ocr"):
+        raise RuntimeError(
+            "Model 'glm-ocr' not found. Pull it with: ollama pull glm-ocr"
+        )
+
+    return process_pdf(
+        pdf_path     = str(pdf_path),
+        out_path     = out_path,
+        engine       = "glm",
+        dpi          = 120,
+        workers      = 2,
+        use_cache    = True,
+        batch_size   = 4,
+        jpeg_quality = 85,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"OCR subprocess failed (exit {result.returncode})")
 
 
 # ── PDF hash cache ────────────────────────────────────────────────────────────
@@ -75,7 +88,7 @@ def _pdf_hash(pdf_path: str) -> str:
     return h.hexdigest()[:10]
 
 
-_PIPELINE_VERSION = "v3"   # bump to invalidate OCR cache after pipeline changes
+_PIPELINE_VERSION = "v4-glm"   # bump to invalidate cache when switching OCR engine
 
 
 def _ocr_cached_path(pdf_path: str) -> Path:
@@ -121,11 +134,7 @@ def run_full_pipeline(
         ocr_out = _ocr_cached_path(pdf_path)
 
         if not ocr_out.exists():
-            _run_ocr_subprocess(pdf_path)
-            # pdf_pipeline.py writes to {stem}_full_report.txt — rename to versioned cache
-            legacy = OCR_OUTPUT_DIR / f"{Path(pdf_path).stem}_full_report.txt"
-            if legacy.exists() and not ocr_out.exists():
-                legacy.rename(ocr_out)
+            _run_glmocr(pdf_path, ocr_out)
 
         if not ocr_out.exists():
             raise RuntimeError(f"OCR output not found: {ocr_out}")

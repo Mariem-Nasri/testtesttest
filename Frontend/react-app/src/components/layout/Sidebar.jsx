@@ -66,7 +66,7 @@ export default function Sidebar({ isOpen, onClose }) {
         {/* ── Navigation ── */}
         <ul className="sidebar-nav">
           {NAV_ITEMS.map((section) => (
-            <li key={section.label}>
+            <div key={section.label}>
               {/* Section label */}
               <div className="nav-section-label">{section.label}</div>
 
@@ -87,7 +87,7 @@ export default function Sidebar({ isOpen, onClose }) {
                   </NavLink>
                 </li>
               ))}
-            </li>
+            </div>
           ))}
 
           {/* ── Separator ── */}

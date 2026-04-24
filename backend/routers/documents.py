@@ -121,16 +121,17 @@ async def upload_document(
     except Exception:
         extra_keys_list = []
 
-    # ── Load role-based template ──────────────────────────────────────────────
-    try:
-        template = load_template(role, doc_subtype)
-    except ValueError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # ── Merge template keys + extra keys ──────────────────────────────────────
-    merged_keys = merge_with_extra_keys(template["keys"], extra_keys_list)
+    # ── Option B: if user provided keys, use ONLY those — skip template ──────
+    if extra_keys_list:
+        merged_keys = extra_keys_list
+    else:
+        try:
+            template = load_template(role, doc_subtype)
+        except ValueError as e:
+            raise HTTPException(status_code=403, detail=str(e))
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        merged_keys = template["keys"]
 
     # ── Save files ────────────────────────────────────────────────────────────
     doc_id  = str(uuid.uuid4())
@@ -164,14 +165,12 @@ async def upload_document(
     })
 
     return {
-        "id":           doc_id,
-        "name":         pdf_file.filename,
-        "status":       "pending",
-        "created_at":   now,
-        "doc_subtype":  doc_subtype,
-        "total_keys":   len(merged_keys),
-        "template_keys": len(template["keys"]),
-        "extra_keys":    len(extra_keys_list),
+        "id":          doc_id,
+        "name":        pdf_file.filename,
+        "status":      "pending",
+        "created_at":  now,
+        "doc_subtype": doc_subtype,
+        "total_keys":  len(merged_keys),
     }
 
 
